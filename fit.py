@@ -3,11 +3,55 @@ import os
 import random
 import sys
 import multiprocessing
-from cli_util import panic, parse_args
+from cli_util import panic, parse_args, read_points_from_csv, pos_int, pos_float
 
 DEFAULT_TRIALS = 1
 DEFAULT_PROCESSES = 1
-DEFAULT_MAX_PERTURB = 100
+HELP_TEXT = '''Fits a polynomial curve to a 2D data set.
+
+Uses simulated annealing to implement the least squares method. Coefficients of
+the fitted curve are printed to standard output, highest degree first.
+
+Usage:
+    python fit.py --degree=DEGREE --steps=STEPS --perturb=MAX_PERTURB \
+INPUT_FILE [--seed=SEED] [--trials=TRIALS] [--processes=PROCESSES]
+    python fit.py --help
+
+Arguments:
+    DEGREE: degree of the polynomial to fit to the data. Must be an integer
+        greater than 0.
+
+    STEPS: the number of simulated annealing steps to take. The temperature
+        decreases as a function of the current number of steps. Must be an
+        integer greater than 0.
+
+    MAX_PERTURB: the maximum possible perturbance to apply to the coefficients
+        during simulated annealing. Perturbance naturally decreases with time,
+        as does the rejection chance for increases in error. Must be a real
+        number greater than 0.0.
+
+    INPUT_FILE: the CSV file the data will come from. The file must have no
+        header and contain exactly 2 columns of real numbers.
+
+    SEED: optional; the random seed to use. The simulated annealing algorithm is
+        probabilistic and relies on a PRNG; this sets the seed at the start of
+        the program. If specified, may be any string.
+
+    TRIALS: optional; the number of fittings to run. Because the algorithm is
+        probabilistic, multiple trials may find better fittings. The
+        coefficients of the curve with the smallest error are printed. If
+        specified, must be an integer greater than 0.
+
+    PROCESSES: optional; the number of processes to spawn to compute multiple
+        trials at once. Will have no effect other than slowing startup time if
+        this number exceeds the number of trials. If specified, must be an
+        integer.  If less than or equal to 0, the number of logical processors
+        usable by the program (from os.process_cpu_count()) will be used
+        instead.
+
+Exit code:
+    0 on success, 1 on any argument parsing or data error.
+'''
 
 def fit(degree, data, trials, steps, max_perturb, processes):
     if processes == 1:
@@ -39,7 +83,7 @@ def _perturb_coeffs(coeffs, temp, max_perturb):
     return [k + (random.random() - 0.5) * 2 * temp * max_perturb for k in coeffs]
 
 def _should_change_coeffs(temp, err_old, err_new):
-    return err_new < err_old or False #random.random() > err_new / err_old * (1 - temp)
+    return err_new < err_old or random.random() > err_new / err_old * (1 - temp)
 
 def _spawn_fit(args, seed):
     random.seed(seed)
@@ -59,15 +103,20 @@ def _run_cli():
         'trials': pos_int,
         'steps': pos_int,
         'processes': int,
-        'perturb': float,
+        'perturb': pos_float,
+        'help': None,
     })
     degree = named.get('degree')
     seed = named.get('seed')
     trials = named.get('trials', DEFAULT_TRIALS)
     steps = named.get('steps')
     processes = named.get('processes', DEFAULT_PROCESSES)
-    max_perturb = named.get('perturb', DEFAULT_MAX_PERTURB)
+    max_perturb = named.get('perturb')
     filename = positional[0] if len(positional) else None
+
+    if 'help' in named:
+        print(HELP_TEXT, file=sys.stderr)
+        exit(0)
 
     if seed != None:
         random.seed(seed)
@@ -75,7 +124,9 @@ def _run_cli():
         panic('Missing degree')
     if steps == None:
         panic('Missing steps')
-    if processes < 0:
+    if max_perturb == None:
+        panic('Missing max perturbance')
+    if processes <= 0:
         processes = os.process_cpu_count()
     if len(positional) > 1:
         panic('Too many arguments')
@@ -88,16 +139,7 @@ def _run_cli():
     else:
         file = sys.stdin
 
-    points = []
-    for line in file.readlines():
-        try:
-            point = tuple(float(x) for x in line.split(','))
-        except ValueError:
-            panic('Found non-numeric data')
-        if len(point) != 2:
-            panic('Too many fields for data point')
-        points.append(point)
-
+    points = read_points_from_csv(file)
     file.close()
     
     coeffs = fit(degree, points, trials, steps, max_perturb, processes)
