@@ -14,7 +14,7 @@ the fitted curve are printed to standard output, highest degree first.
 
 Usage:
     python fit.py --degree=DEGREE --steps=STEPS --perturb=MAX_PERTURB \
-INPUT_FILE [--seed=SEED] [--trials=TRIALS] [--processes=PROCESSES]
+[INPUT_FILE] [--seed=SEED] [--trials=TRIALS] [--processes=PROCESSES]
     python fit.py --help
 
 Arguments:
@@ -30,8 +30,11 @@ Arguments:
         as does the rejection chance for increases in error. Must be a real
         number greater than 0.0.
 
-    INPUT_FILE: the CSV file the data will come from. The file must have no
-        header and contain exactly 2 columns of real numbers.
+    INPUT_FILE: optional; the CSV file the data will come from. The file must
+        have no header and contain exactly 2 columns of real numbers. If
+        specified, must be the relative path to an existing CSV file matching
+        these requirements. If omitted, data will be read from standard input
+        instead.
 
     SEED: optional; the random seed to use. The simulated annealing algorithm is
         probabilistic and relies on a PRNG; this sets the seed at the start of

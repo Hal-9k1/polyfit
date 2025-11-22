@@ -3,6 +3,10 @@ from cli_util import panic, parse_args, pos_int
 
 DEFAULT_MAX_PROCESSES = 1
 
+HELP_TEXT = '''foobar
+
+'''
+
 def smooth():
     pass
 
