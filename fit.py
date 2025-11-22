@@ -58,15 +58,23 @@ Exit code:
 
 def fit(degree, data, trials, steps, max_perturb, processes):
     if processes == 1:
-        trials = [_spawn_fit((degree, data, steps, max_perturb), random.random())
+        trial_coeffs = [_spawn_fit((degree, data, steps, max_perturb), random.random())
             for _ in range(trials)]
     else:
+        if processes < 1:
+            processes = os.process_cpu_count()
         with multiprocessing.Pool(processes) as pool:
-            trials = pool.starmap(
-                _spawn_fit,
-                [((degree, data, steps, max_perturb), random.random()) for _ in range(trials)]
-            )
-    return min(trials, key=lambda x: _get_error(x, data))
+            try:
+                trial_coeffs = pool.starmap(
+                    _spawn_fit,
+                    [((degree, data, steps, max_perturb), random.random()) for _ in range(trials)]
+                )
+            except KeyboardInterrupt as e:
+                # Workatound for apparently unfixed bpo-8296 CPython bug preventing
+                # KeyboardInterrupt propagation to subprocs
+                pool.terminate()
+                raise e
+    return min(trial_coeffs, key=lambda x: _get_error(x, data))
 
 def _do_fit(degree, data, steps, max_perturb):
     # least degree first
@@ -89,8 +97,12 @@ def _should_change_coeffs(temp, err_old, err_new):
     return err_new < err_old or random.random() > err_new / err_old * (1 - temp)
 
 def _spawn_fit(args, seed):
-    random.seed(seed)
-    return _do_fit(*args)
+    try:
+        random.seed(seed)
+        return _do_fit(*args)
+    except KeyboardInterrupt as e:
+        # Workaround for bpo-8296
+        raise Exception('Re-raised interrupt') from e
 
 def _get_error(coeffs, data):
     total = 0
@@ -129,8 +141,6 @@ def _run_cli():
         panic('Missing steps')
     if max_perturb == None:
         panic('Missing max perturbance')
-    if processes <= 0:
-        processes = os.process_cpu_count()
     if len(positional) > 1:
         panic('Too many arguments')
 
