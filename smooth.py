@@ -10,9 +10,9 @@ Outputs a copy of the input data with the middle section (half the window length
 inwards on either side) smoothed.
 
 Usage:
-    python smooth.py --degree=DEGREE --steps=STEPS --perturb=MAX_PERTURB \
-[INPUT_FILE] [--output=OUTPUT_FILE] [--maxprocs=TOTAL_SUBPROCESSES] \
-[--scanprocs=SMOOTH_SCAN_PROCESSES] [--seed=SEED] [--trials=TRIALS]
+    python smooth.py --degree=DEGREE --steps=STEPS --perturb=MAX_PERTURB [INPUT_FILE]
+        [--output=OUTPUT_FILE] [--maxprocs=TOTAL_SUBPROCESSES] [--scanprocs=SMOOTH_SCAN_PROCESSES]
+        [--seed=SEED] [--trials=TRIALS] [--traceback]
     python smooth.py --help
 
 Arguments:
@@ -59,6 +59,8 @@ Arguments:
         the local fitting algorithm is probabilistic, multiple trials may find
         better fittings.  If specified, must be an integer greater than 0.
 
+    --traceback: if specified, show tracebacks for encountered exceptions.
+
 Exit code:
     0 on success, 1 on any argument parsing or data error.
 '''
@@ -69,14 +71,15 @@ def smooth(degree, data, trials, steps, max_perturb, window, max_subprocs, smoot
     if smooth_procs < 1:
         smooth_procs = min(max_subprocs, os.process_cpu_count())
     if smooth_procs > max_subprocs:
-        panic('Number of smoothing processes cannot be greater than maximum subprocesses.')
+        raise ValueError('Number of smoothing processes cannot be greater than '
+            + 'maximum subprocesses.')
     fit_procs = max_subprocs // smooth_procs
 
     half_window = window // 2
     smoothable_start = half_window
     smoothable_end = len(data) - half_window
     if smoothable_end <= smoothable_start:
-        panic('Window too large for data length')
+        raise ValueError('Window too large for data length')
     labeled_window_slices = [
         (i, data[(i - half_window):(i + half_window)])
         for i in range(smoothable_start, smoothable_end)
@@ -127,6 +130,7 @@ def _run_cli():
         'window': pos_int,
         'output': str,
         'help': None,
+        'traceback': None,
     })
 
     degree = named.get('degree')
@@ -138,6 +142,7 @@ def _run_cli():
     max_perturb = named.get('perturb')
     in_filename = positional[0] if len(positional) else None
     out_filename = named.get('output')
+    show_traceback = 'traceback' in named
 
     if 'help' in named:
         print(HELP_TEXT, file=sys.stderr)
@@ -177,8 +182,13 @@ def _run_cli():
     points = read_points_from_csv(in_file)
     file.close()
     
-    smoothed = smooth(degree, points, trials, steps, max_perturb, window, max_subprocs,
-        smooth_procs)
+    try:
+        smoothed = smooth(degree, points, trials, steps, max_perturb, window, max_subprocs,
+            smooth_procs)
+    except Exception as e:
+        panic(f'{type(e)}: {e}')
+        if show_traceback:
+            traceback.print_tb(e.__traceback__)
 
     out_file.writelines(f'{point[0]},{point[1]}\n' for point in smoothed)
 
