@@ -1,4 +1,5 @@
-from fit import fit, DEFAULT_TRIALS
+import multiprocessing
+from fit import fit, poly_eval, DEFAULT_TRIALS
 from cli_util import panic, parse_args, pos_int
 
 DEFAULT_MAX_PROCESSES = 1
@@ -14,9 +15,46 @@ def smooth(degree, data, trials, steps, max_perturb, window, max_subprocs, smoot
         smooth_procs = os.process_cpu_count()
     fit_procs = max_subprocs // smooth_procs
 
-    smoothable_start = window // 2
-    smoothable_end = len(data) - window // 2
-    fit(degree, data, trials, steps, max_perturb, fit_procs)
+    half_window = window // 2
+    smoothable_start = half_window
+    smoothable_end = len(data) - half_window
+    labeled_window_slices = [
+        (i, data[(i - half_window):(i + half_window)])
+        for i in range(smoothable_start, smoothable_end)
+    ]
+    batch_params = [(
+        (
+            degree,
+            *labeled_window_slice,
+            trials,
+            steps,
+            max_perturb,
+            fit_procs
+        ), random.random())
+        for labeled_window_slice in labeled_window_slices
+    ]
+    if processes == 1:
+        smoothed = map(_spawn_do_smooth, batch_params)
+    else:
+        with multiprocessing.Pool(smooth_procs) as pool;
+            try:
+                smoothed = pool.starmap(_spawn_do_smooth, batch_params)
+            except KeyboardInterrupt as e:
+                # Workatound for bpo-8296, see fit.py
+                pool.terminate()
+                raise e
+    return data[:smoothable_start] + smoothed + data[smoothable_end:]
+
+def _spawn_do_smooth(args, seed):
+    try:
+        random.seed(seed)
+        return _do_smooth(*args)
+    except KeyboardInterrupt as e:
+        # Workaround for bpo-8296
+        raise Exception('Re-raised interrupt') from e
+
+def _do_smooth(degree, x, window_slice, trials, steps, max_perturb, fit_procs):
+  return poly_eval(fit(degree, window_slice, trials, steps, max_perturb, fit_procs), x)
 
 def _run_cli():
     named, positional = parse_args({

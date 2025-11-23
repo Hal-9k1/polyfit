@@ -57,17 +57,17 @@ Exit code:
 '''
 
 def fit(degree, data, trials, steps, max_perturb, processes):
+    batch_params = [((degree, data, steps, max_perturb), random.random()) for _ in range(trials)]
     if processes == 1:
-        trial_coeffs = [_spawn_fit((degree, data, steps, max_perturb), random.random())
-            for _ in range(trials)]
+        trial_coeffs = map(_spawn_do_fit, batch_params)
     else:
         if processes < 1:
             processes = os.process_cpu_count()
         with multiprocessing.Pool(processes) as pool:
             try:
                 trial_coeffs = pool.starmap(
-                    _spawn_fit,
-                    [((degree, data, steps, max_perturb), random.random()) for _ in range(trials)]
+                    _spawn_do_fit,
+                    batch_params
                 )
             except KeyboardInterrupt as e:
                 # Workatound for apparently unfixed bpo-8296 CPython bug preventing
@@ -75,6 +75,9 @@ def fit(degree, data, trials, steps, max_perturb, processes):
                 pool.terminate()
                 raise e
     return min(trial_coeffs, key=lambda x: _get_error(x, data))
+
+def poly_eval(coeffs, x):
+    return sum(k * pow(x, n) for n, k in enumerate(coeffs))
 
 def _do_fit(degree, data, steps, max_perturb):
     # least degree first
@@ -96,7 +99,7 @@ def _perturb_coeffs(coeffs, temp, max_perturb):
 def _should_change_coeffs(temp, err_old, err_new):
     return err_new < err_old or random.random() > err_new / err_old * (1 - temp)
 
-def _spawn_fit(args, seed):
+def _spawn_do_fit(args, seed):
     try:
         random.seed(seed)
         return _do_fit(*args)
@@ -107,7 +110,7 @@ def _spawn_fit(args, seed):
 def _get_error(coeffs, data):
     total = 0
     for point in data:
-        predicted = sum(k * pow(point[0], n) for n, k in enumerate(coeffs))
+        predicted = poly_eval(coeffs, point[0])
         total += pow(predicted - point[1], 2)
     return total
 
