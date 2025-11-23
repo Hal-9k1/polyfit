@@ -6,18 +6,77 @@ DEFAULT_MAX_PROCESSES = 1
 
 HELP_TEXT = '''Applies Svitzsky-Golay smoothing to a 2D dataset.
 
+Outputs a copy of the input data with the middle section (half the window length
+inwards on either side) smoothed.
+
+Usage:
+    python smooth.py --degree=DEGREE --steps=STEPS --perturb=MAX_PERTURB \
+[INPUT_FILE] [--output=OUTPUT_FILE] [--maxprocs=TOTAL_SUBPROCESSES] \
+[--scanprocs=SMOOTH_SCAN_PROCESSES] [--seed=SEED] [--trials=TRIALS]
+    python smooth.py --help
+
+Arguments:
+    DEGREE: degree of the polynomial to fit to the sliding window. Must be an
+        integer greater than 0.
+
+    STEPS: the number of simulated annealing steps to take. The temperature
+        decreases as a function of the current number of steps. Must be an
+        integer greater than 0.
+
+    MAX_PERTURB: the maximum possible perturbance to apply to the coefficients
+        during simulated annealing to find local polynomial fits. Must be a
+        positive real number.
+
+    INPUT_FILE: optional; the CSV file the data will come from. The file must
+        have no header and contain exactly 2 columns of real numbers. If
+        specified, must be the relative path to an existing CSV file matching
+        these requirements. If omitted, data will be read from standard input
+        instead.
+
+    OUTPUT_FILE: optional; the name of the file to output the smoothed data to.
+        If specified, must be a writable relative path. If omitted, smoothed
+        data will be printed to standard output instead.
+
+    TOTAL_SUBPROCESSES: optional; the total number of processes to spawn,
+        between smoothing multiple data points at once and running multiple fitting
+        trials for each data point.  trials at once. If less than or equal to
+        0, the number of logical processors usable by the program (from
+        os.process_cpu_count()) will be used instead. If omitted,
+        defaults to 1.
+
+    SMOOTH_SCAN_SUBPROCESSES: optional; the number of processes to spawn to
+      smooth multiple data points at once. If less than or equal to 0, the
+      maximum number of logical processors usable by the program (from
+      os.process_cpu_count(), also constrained by TOTAL_SUBPROCESSES) will be
+      used instead. If omitted, defaults to 1.
+
+    SEED: optional; the random seed to use. The simulated annealing algorithm
+        used to find local polynomial fitsis probabilistic and relies on a
+        PRNG; this sets the seed at the start of the program. If specified, may
+        be any string.
+
+    TRIALS: optional; the number of fittings to run for each window. Because
+        the local fitting algorithm is probabilistic, multiple trials may find
+        better fittings.  If specified, must be an integer greater than 0.
+
+Exit code:
+    0 on success, 1 on any argument parsing or data error.
 '''
 
 def smooth(degree, data, trials, steps, max_perturb, window, max_subprocs, smooth_procs):
     if max_subprocs < 1:
         max_subprocs = os.process_cpu_count()
     if smooth_procs < 1:
-        smooth_procs = os.process_cpu_count()
+        smooth_procs = min(max_subprocs, os.process_cpu_count())
+    if smooth_procs > max_subprocs:
+        panic('Number of smoothing processes cannot be greater than maximum subprocesses.')
     fit_procs = max_subprocs // smooth_procs
 
     half_window = window // 2
     smoothable_start = half_window
     smoothable_end = len(data) - half_window
+    if smoothable_end <= smoothable_start:
+        panic('Window too large for data length')
     labeled_window_slices = [
         (i, data[(i - half_window):(i + half_window)])
         for i in range(smoothable_start, smoothable_end)

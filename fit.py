@@ -38,19 +38,21 @@ Arguments:
 
     SEED: optional; the random seed to use. The simulated annealing algorithm is
         probabilistic and relies on a PRNG; this sets the seed at the start of
-        the program. If specified, may be any string.
+        the program. If specified, may be any string. If omitted, the seed will
+        be indeterminate and results will likely be random per-run.
 
     TRIALS: optional; the number of fittings to run. Because the algorithm is
         probabilistic, multiple trials may find better fittings. The
         coefficients of the curve with the smallest error are printed. If
-        specified, must be an integer greater than 0.
+        specified, must be an integer greater than 0. If omitted,
+        defaults to 1.
 
     PROCESSES: optional; the number of processes to spawn to compute multiple
         trials at once. Will have no effect other than slowing startup time if
         this number exceeds the number of trials. If specified, must be an
         integer.  If less than or equal to 0, the number of logical processors
         usable by the program (from os.process_cpu_count()) will be used
-        instead.
+        instead. If omitted, defaults to 1.
 
 Exit code:
     0 on success, 1 on any argument parsing or data error.
