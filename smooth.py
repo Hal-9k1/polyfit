@@ -1,6 +1,7 @@
+import sys
 import multiprocessing
 from fit import fit, poly_eval, DEFAULT_TRIALS
-from cli_util import panic, parse_args, pos_int
+from cli_util import panic, parse_args, pos_int, read_points_from_csv
 
 DEFAULT_MAX_PROCESSES = 1
 
@@ -98,7 +99,7 @@ def smooth(degree, data, trials, steps, max_perturb, window, max_subprocs, smoot
     if processes == 1:
         smoothed = map(_spawn_do_smooth, batch_params)
     else:
-        with multiprocessing.Pool(smooth_procs) as pool;
+        with multiprocessing.Pool(smooth_procs) as pool:
             try:
                 smoothed = pool.starmap(_spawn_do_smooth, batch_params)
             except KeyboardInterrupt as e:
@@ -140,6 +141,7 @@ def _run_cli():
     max_subprocs = named.get('maxprocs', DEFAULT_MAX_PROCESSES)
     smooth_procs = named.get('scanprocs', DEFAULT_MAX_PROCESSES)
     max_perturb = named.get('perturb')
+    window = named.get('window')
     in_filename = positional[0] if len(positional) else None
     out_filename = named.get('output')
     show_traceback = 'traceback' in named
@@ -158,8 +160,6 @@ def _run_cli():
         panic('Missing max perturbance')
     if window == None:
         panic('Missing window')
-    if processes < 0:
-        processes = os.process_cpu_count()
     if len(positional) > 1:
         panic('Too many arguments')
 
@@ -180,13 +180,13 @@ def _run_cli():
         out_file = sys.stdout
 
     points = read_points_from_csv(in_file)
-    file.close()
+    in_file.close()
     
     try:
         smoothed = smooth(degree, points, trials, steps, max_perturb, window, max_subprocs,
             smooth_procs)
     except Exception as e:
-        panic(f'{type(e)}: {e}')
+        panic(f'{type(e).__name__}: {e}')
         if show_traceback:
             traceback.print_tb(e.__traceback__)
 
