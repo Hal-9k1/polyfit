@@ -59,7 +59,7 @@ Exit code:
 '''
 
 def fit(degree, data, trials, steps, max_perturb, processes):
-    batch_params = [((degree, data, steps, max_perturb), random.random()) for _ in range(trials)]
+    batch_params = [(degree, data, steps, max_perturb, random.random()) for _ in range(trials)]
     if processes == 1:
         trial_coeffs = map(_spawn_do_fit, batch_params)
     else:
@@ -67,7 +67,7 @@ def fit(degree, data, trials, steps, max_perturb, processes):
             processes = os.process_cpu_count()
         with multiprocessing.Pool(processes) as pool:
             try:
-                trial_coeffs = pool.starmap(
+                trial_coeffs = pool.map(
                     _spawn_do_fit,
                     batch_params
                 )
@@ -101,10 +101,10 @@ def _perturb_coeffs(coeffs, temp, max_perturb):
 def _should_change_coeffs(temp, err_old, err_new):
     return err_new < err_old or random.random() > err_new / err_old * (1 - temp)
 
-def _spawn_do_fit(args, seed):
+def _spawn_do_fit(args):
     try:
-        random.seed(seed)
-        return _do_fit(*args)
+        random.seed(args[-1])
+        return _do_fit(*(args[:-1]))
     except KeyboardInterrupt as e:
         # Workaround for bpo-8296
         raise Exception('Re-raised interrupt') from e
