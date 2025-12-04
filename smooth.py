@@ -1,19 +1,22 @@
 import sys
 import multiprocessing
+import traceback
+import random
 from fit import fit, poly_eval, DEFAULT_TRIALS
 from cli_util import panic, parse_args, pos_int, read_points_from_csv
 
 DEFAULT_MAX_PROCESSES = 1
 
-HELP_TEXT = '''Applies Svitzsky-Golay smoothing to a 2D dataset.
+HELP_TEXT = '''Applies Savitzsky-Golay smoothing to a 2D dataset.
 
 Outputs a copy of the input data with the middle section (half the window length
 inwards on either side) smoothed.
 
 Usage:
-    python smooth.py --degree=DEGREE --steps=STEPS --perturb=MAX_PERTURB [INPUT_FILE]
-        [--output=OUTPUT_FILE] [--maxprocs=TOTAL_SUBPROCESSES] [--scanprocs=SMOOTH_SCAN_PROCESSES]
-        [--seed=SEED] [--trials=TRIALS] [--traceback]
+    python smooth.py --degree=DEGREE --steps=STEPS --perturb=MAX_PERTURB
+    --window=WINDOW [INPUT_FILE] [--output=OUTPUT_FILE]
+    [--maxprocs=TOTAL_SUBPROCESSES] [--scanprocs=SMOOTH_SCAN_PROCESSES]
+    [--seed=SEED] [--trials=TRIALS] [--traceback]
     python smooth.py --help
 
 Arguments:
@@ -28,6 +31,10 @@ Arguments:
         during simulated annealing to find local polynomial fits. Must be a
         positive real number.
 
+    WINDOW: the length of the sliding window centered on a data point on which
+        to fit the smoothing polynomial. Must be an integer greater than 0 and
+        less than the length of the data.
+
     INPUT_FILE: optional; the CSV file the data will come from. The file must
         have no header and contain exactly 2 columns of real numbers. If
         specified, must be the relative path to an existing CSV file matching
@@ -39,11 +46,10 @@ Arguments:
         data will be printed to standard output instead.
 
     TOTAL_SUBPROCESSES: optional; the total number of processes to spawn,
-        between smoothing multiple data points at once and running multiple fitting
-        trials for each data point.  trials at once. If less than or equal to
-        0, the number of logical processors usable by the program (from
-        os.process_cpu_count()) will be used instead. If omitted,
-        defaults to 1.
+        between smoothing multiple data points at once and running multiple
+        fitting trials for each data point.  trials at once. If less than or
+        equal to 0, the number of logical processors usable by the program (from
+        os.process_cpu_count()) will be used instead. If omitted, defaults to 1.
 
     SMOOTH_SCAN_SUBPROCESSES: optional; the number of processes to spawn to
       smooth multiple data points at once. If less than or equal to 0, the
@@ -85,18 +91,19 @@ def smooth(degree, data, trials, steps, max_perturb, window, max_subprocs, smoot
         (i, data[(i - half_window):(i + half_window)])
         for i in range(smoothable_start, smoothable_end)
     ]
-    batch_params = [(
+    batch_params = [
         (
             degree,
             *labeled_window_slice,
             trials,
             steps,
             max_perturb,
-            fit_procs
-        ), random.random())
+            fit_procs,
+            random.random()
+        )
         for labeled_window_slice in labeled_window_slices
     ]
-    if processes == 1:
+    if smooth_procs == 1:
         smoothed = map(_spawn_do_smooth, batch_params)
     else:
         with multiprocessing.Pool(smooth_procs) as pool:
@@ -106,12 +113,13 @@ def smooth(degree, data, trials, steps, max_perturb, window, max_subprocs, smoot
                 # Workatound for bpo-8296, see fit.py
                 pool.terminate()
                 raise e
-    return data[:smoothable_start] + smoothed + data[smoothable_end:]
+    smoothed_points = list(zip((params[1] for params in batch_params), smoothed))
+    return data[:smoothable_start] + smoothed_points + data[smoothable_end:]
 
-def _spawn_do_smooth(args, seed):
+def _spawn_do_smooth(args):
     try:
-        random.seed(seed)
-        return _do_smooth(*args)
+        random.seed(args[-1])
+        return _do_smooth(*args[:-1])
     except KeyboardInterrupt as e:
         # Workaround for bpo-8296
         raise Exception('Re-raised interrupt') from e
@@ -186,9 +194,10 @@ def _run_cli():
         smoothed = smooth(degree, points, trials, steps, max_perturb, window, max_subprocs,
             smooth_procs)
     except Exception as e:
-        panic(f'{type(e).__name__}: {e}')
+        print(f'{type(e).__name__}: {e}', file=sys.stderr)
         if show_traceback:
-            traceback.print_tb(e.__traceback__)
+            traceback.print_tb(e.__traceback__, file=sys.stderr)
+        exit(1)
 
     out_file.writelines(f'{point[0]},{point[1]}\n' for point in smoothed)
 
