@@ -4,7 +4,7 @@ import random
 
 def main():
     seed = 42
-    coeffs = (2000, -0.5, 0, 1, -2.75)
+    coeffs = (0, -39375, -425, 55, 1)
     noise_size = 4
     data_length = 100
 
