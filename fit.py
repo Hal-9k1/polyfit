@@ -2,11 +2,8 @@ import importlib
 import os
 import random
 import sys
-import multiprocessing
 from cli_util import panic, parse_args, read_points_from_csv, pos_int, pos_float
 
-DEFAULT_TRIALS = 1
-DEFAULT_PROCESSES = 1
 HELP_TEXT = '''Fits a polynomial curve to a 2D data set.
 
 Uses matrix operations to find the least squares fit. Coefficients of the fitted
@@ -32,18 +29,22 @@ Exit code:
 
 def fit(degree, data):
     mat = _Mat(
-        degree,
+        degree + 1,
         len(data),
-        sum([[pow(point[0], n + 1) for n in range(degree)] for point in data], start=[])
+        sum([[pow(point[0], n) for n in range(degree + 1)] for point in data], start=[])
     )
     mat_t = mat.transpose()
     # coeffs = (x^T * x)^-1 * x^T * y
+    # where each row in x are the ascending powers of a data point's independent variable
+    # and each row in y is the corresponding dependent variable
     return ((mat_t * mat).invert() * mat_t * _Mat.colvec([point[1] for point in data])).as_colvec()
 
 def poly_eval(coeffs, x):
     return sum(k * pow(x, n) for n, k in enumerate(coeffs))
 
 class _Mat:
+    _EPSILON = pow(10, -5)
+
     def __init__(self, width, height, data=None):
         if data and len(data) != width * height:
             raise ValueError('Inconsistent dimensions with data')
@@ -70,28 +71,31 @@ class _Mat:
     def invert(self):
         ident = _Mat.identity(self._height)
         solved = self.augment(ident).rref()
-        print(solved)
         if solved._select_cols(0, self._width) != ident:
             raise ValueError('Matrix is not invertible')
         return solved._select_cols(self._width, solved._width)
 
     def rref(self):
         rows = [self._get_row(y) for y in range(self._height)]
-        for y in range(self._height):
+        for y in range(self._height + 1): # sort one more time after processing all rows
             pivots = [_Mat._find_pivot(row) for row in rows]
             rp_sorted = sorted(zip(rows, pivots), key=lambda rp: rp[1])
             rows = [rp[0] for rp in rp_sorted]
             pivots = [rp[1] for rp in rp_sorted]
+            if y == self._height:
+                # on the final iteration, stop after sorting
+                break
             row = rows[y]
             pivot = pivots[y]
             if pivot == self._width:
+                # the rest of the rows lack pivots
                 break
             for row2 in rows:
                 if row is row2:
                     continue
                 fac = row2[pivot] / row[pivot]
-                for x in range(self._width):
-                    row2[x] -= row[x] * fac
+                for x in range(pivot, self._width):
+                    row2[x] = row2[x] - row[x] * fac
         for row in rows:
             pivot = _Mat._find_pivot(row)
             if pivot == self._width:
@@ -137,11 +141,11 @@ class _Mat:
 
     def __eq__(self, other):
         return (isinstance(other, type(self)) and self._width == other._width
-            and self._data == other._data)
+            and all(abs(a - b) < _Mat._EPSILON for a, b in zip(self._data, other._data)))
 
     def _find_pivot(row):
         for i, v in enumerate(row):
-            if v != 0:
+            if abs(v) > _Mat._EPSILON:
                 return i
         return len(row)
 
@@ -188,7 +192,7 @@ def _run_cli():
     points = read_points_from_csv(file)
     file.close()
     
-    coeffs = fit(degree, points, trials, steps, max_perturb, processes)
+    coeffs = fit(degree, points)
     print(f'Error: {_get_error(coeffs, points)}')
     for coeff in reversed(coeffs):
         print(coeff)

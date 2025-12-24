@@ -1,11 +1,13 @@
-import sys
 import multiprocessing
-import traceback
+import os
 import random
-from fit import fit, poly_eval, DEFAULT_TRIALS
+import sys
+import traceback
+from fit import fit, poly_eval
 from cli_util import panic, parse_args, pos_int, read_points_from_csv
 
 DEFAULT_MAX_PROCESSES = 1
+DEFAULT_END_MODE = 'clip'
 
 HELP_TEXT = '''Applies Savitzsky-Golay smoothing to a 2D dataset.
 
@@ -14,7 +16,7 @@ inwards on either side) smoothed.
 
 Usage:
     python smooth.py --degree=DEGREE --window=WINDOW [INPUT_FILE] [--output=OUTPUT_FILE]
-    [--scanprocs=SMOOTH_SCAN_PROCESSES] [--traceback]
+    [--ends=END_BEHAVIOR] [--processes=SUBPROCESSES] [--traceback]
     python smooth.py --help
 
 Arguments:
@@ -35,10 +37,19 @@ Arguments:
         If specified, must be a writable relative path. If omitted, smoothed
         data will be printed to standard output instead.
 
-    SMOOTH_SCAN_SUBPROCESSES: optional; the number of processes to spawn to
-      smooth multiple data points at once. If less than or equal to 0, the
-      maximum number of logical processors usable by the program (from
-      os.process_cpu_count()) will be used instead. If omitted, defaults to 1.
+    END_BEHAVIOR: optional; how to process points less than half the window
+        length away from either end of the data. If specified, must be one of
+        'clip', 'extend', or 'preserve'.
+         -> clip: do not include the end data points in the output at all.
+         -> extend: use the polynomial fitting from the nearest data point with
+                a full window to smooth end data points.
+         -> preserve: output end data points exactly as they appear in input.
+        If omitted, defaults to 'clip'.
+
+    SUBPROCESSES: optional; the number of processes to spawn to smooth multiple
+        data points at once. If less than or equal to 0, the maximum number of
+        logical processors usable by the program (from os.process_cpu_count())
+        will be used instead. If omitted, defaults to 1.
 
     --traceback: if specified, show tracebacks for encountered exceptions.
 
@@ -46,9 +57,9 @@ Exit code:
     0 on success, 1 on any argument parsing or data error.
 '''
 
-def smooth(degree, data, window, smooth_procs):
+def smooth(degree, data, window, smooth_procs, end_mode=DEFAULT_END_MODE):
     if smooth_procs < 1:
-        smooth_procs = os.process_cpu_count()
+        smooth_procs = _guess_cpu_count()
 
     half_window = window // 2
     smoothable_start = half_window
@@ -56,7 +67,7 @@ def smooth(degree, data, window, smooth_procs):
     if smoothable_end <= smoothable_start:
         raise ValueError('Window too large for data length')
     labeled_window_slices = [
-        (i, data[(i - half_window):(i + half_window)])
+        (data[i][0], data[(i - half_window):(i + half_window)])
         for i in range(smoothable_start, smoothable_end)
     ]
     batch_params = [
@@ -72,9 +83,24 @@ def smooth(degree, data, window, smooth_procs):
             except KeyboardInterrupt as e:
                 # Workatound for bpo-8296
                 pool.terminate()
-                raise e
+                raise Exception('Re-raised interrupt') from e
     smoothed_points = list(zip((params[1] for params in batch_params), smoothed))
-    return data[:smoothable_start] + smoothed_points + data[smoothable_end:]
+    if end_mode == 'clip':
+        return smoothed_points
+    elif end_mode == 'extend':
+        extended_start = [
+            (x, poly_eval(fit(degree, labeled_window_slices[0][1]), x))
+            for x, _ in data[:smoothable_start]
+        ]
+        extended_end = [
+            (x, poly_eval(fit(degree, labeled_window_slices[-1][1]), x))
+            for x, _ in data[smoothable_end:]
+        ]
+        return extended_start + smoothed_points + extended_end
+    elif end_mode == 'preserve':
+        return data[:smoothable_start] + smoothed_points + data[smoothable_end:]
+    else:
+        raise ValueError('Invalid end mode')
 
 def _spawn_do_smooth(args):
     try:
@@ -86,21 +112,42 @@ def _spawn_do_smooth(args):
 def _do_smooth(degree, x, window_slice):
     return poly_eval(fit(degree, window_slice), x)
 
+def _guess_cpu_count():
+    try:
+        return os.process_cpu_count()
+    except:
+        pass
+    try:
+        return len(os.sched_getaffinity(os.getpid()))
+    except:
+        pass
+    print('Failed to guess CPU count, using 1 process. Use a positive number for --processes to ' +
+        'silence.', file=sys.stderr)
+    return 1
+
+def _typecheck_end_mode(v):
+    v = v.lower()
+    if v not in ('clip', 'extend', 'preserve'):
+        raise ValueError
+    return v
+
 def _run_cli():
     named, positional = parse_args({
         'degree': pos_int,
-        'scanprocs': int,
+        'processes': int,
         'window': pos_int,
         'output': str,
+        'ends': _typecheck_end_mode,
         'help': None,
         'traceback': None,
     })
 
     degree = named.get('degree')
-    smooth_procs = named.get('scanprocs', DEFAULT_MAX_PROCESSES)
+    smooth_procs = named.get('processes', DEFAULT_MAX_PROCESSES)
     window = named.get('window')
     in_filename = positional[0] if len(positional) else None
     out_filename = named.get('output')
+    end_mode = named.get('ends', DEFAULT_END_MODE)
     show_traceback = 'traceback' in named
 
     if 'help' in named:
@@ -134,7 +181,7 @@ def _run_cli():
     in_file.close()
     
     try:
-        smoothed = smooth(degree, points, window, smooth_procs)
+        smoothed = smooth(degree, points, window, smooth_procs, end_mode)
     except Exception as e:
         print(f'{type(e).__name__}: {e}', file=sys.stderr)
         if show_traceback:
