@@ -1,4 +1,3 @@
-import importlib
 import os
 import random
 import sys
@@ -27,7 +26,7 @@ Exit code:
     0 on success, 1 on any argument parsing or data error.
 '''
 
-def fit(degree, data):
+def fit(degree, data, *, matrix_check=True):
     mat = _Mat(
         degree + 1,
         len(data),
@@ -37,7 +36,10 @@ def fit(degree, data):
     # coeffs = (x^T * x)^-1 * x^T * y
     # where each row in x are the ascending powers of a data point's independent variable
     # and each row in y is the corresponding dependent variable
-    return ((mat_t * mat).invert() * mat_t * _Mat.colvec([point[1] for point in data])).as_colvec()
+    return (
+        (mat_t * mat).invert(check=matrix_check)
+        * mat_t * _Mat.colvec([point[1] for point in data])
+    ).as_colvec()
 
 def poly_eval(coeffs, x):
     return sum(k * pow(x, n) for n, k in enumerate(coeffs))
@@ -68,18 +70,21 @@ class _Mat:
                 data[x * self._height + y] = self._data[y * self._width + x]
         return _Mat(self._height, self._width, data)
 
-    def invert(self):
+    def invert(self, *, check=True):
         ident = _Mat.identity(self._height)
         solved = self.augment(ident).rref()
-        if solved._select_cols(0, self._width) != ident:
-            raise ValueError('Matrix is not invertible')
+        left = solved._select_cols(0, self._width)
+        if left != ident and check:
+            raise ValueError('Matrix is not invertible; expected identity:\n' + str(left))
         return solved._select_cols(self._width, solved._width)
 
     def rref(self):
         rows = [self._get_row(y) for y in range(self._height)]
+        #print(self, file=sys.stderr)
         for y in range(self._height + 1): # sort one more time after processing all rows
             pivots = [_Mat._find_pivot(row) for row in rows]
-            rp_sorted = sorted(zip(rows, pivots), key=lambda rp: rp[1])
+            # sort by pivot, then tiebreak with magnitude at pivot
+            rp_sorted = sorted(zip(rows, pivots), key=lambda rp: (rp[1], abs(rp[0][rp[1]])))
             rows = [rp[0] for rp in rp_sorted]
             pivots = [rp[1] for rp in rp_sorted]
             if y == self._height:
@@ -90,12 +95,17 @@ class _Mat:
             if pivot == self._width:
                 # the rest of the rows lack pivots
                 break
+            #print(f'chose row {row}')
             for row2 in rows:
                 if row is row2:
                     continue
                 fac = row2[pivot] / row[pivot]
+                #print(f'subtracting {fac} times row from {row2}')
                 for x in range(pivot, self._width):
-                    row2[x] = row2[x] - row[x] * fac
+                    # cheat a little bit to avoid crazy floating point error where
+                    # bignum - (bignum / smallnum) * smallnum != 0
+                    row2[x] = 0 if x == 0 else row2[x] - row[x] * fac
+            #print(_Mat(self._width, self._height, sum(rows, start=[])), file=sys.stderr)
         for row in rows:
             pivot = _Mat._find_pivot(row)
             if pivot == self._width:
@@ -134,9 +144,17 @@ class _Mat:
         return _Mat(width, height, data)
 
     def __str__(self):
+        strs = [f'{x: 2g}' for x in self._data]
+        widths = [float('-inf')] * self._width
+        for i, s in enumerate(strs):
+            col = i % self._width
+            widths[col] = max(widths[col], len(s))
         buf = ''
-        for i, v in enumerate(self._data):
-            buf += str(v) + ('\n' if i % self._width == self._width - 1 else '\t')
+        for i, s in enumerate(strs):
+            col = i % self._width
+            buf += s.ljust(widths[col] + 1)
+            if col == self._width - 1:
+                buf += '\n'
         return buf
 
     def __eq__(self, other):
@@ -184,8 +202,8 @@ def _run_cli():
     if filename != None:
         try:
             file = open(file, 'r')
-        except FileNotFoundError:
-            panic('Failed to open input file')
+        except OSError:
+            panic('Failed to open input file for reading')
     else:
         file = sys.stdin
 

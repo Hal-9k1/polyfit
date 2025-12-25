@@ -57,10 +57,11 @@ Exit code:
     0 on success, 1 on any argument parsing or data error.
 '''
 
-def smooth(degree, data, window, smooth_procs, end_mode=DEFAULT_END_MODE):
+def smooth(degree, data, window, smooth_procs, *, end_mode=DEFAULT_END_MODE, matrix_check=True):
     if smooth_procs < 1:
         smooth_procs = _guess_cpu_count()
 
+    data = sorted(data, key=lambda p: p[0])
     half_window = window // 2
     smoothable_start = half_window
     smoothable_end = len(data) - half_window
@@ -71,7 +72,7 @@ def smooth(degree, data, window, smooth_procs, end_mode=DEFAULT_END_MODE):
         for i in range(smoothable_start, smoothable_end)
     ]
     batch_params = [
-        (degree, *labeled_window_slice)
+        (degree, *labeled_window_slice, matrix_check)
         for labeled_window_slice in labeled_window_slices
     ]
     if smooth_procs == 1:
@@ -89,11 +90,11 @@ def smooth(degree, data, window, smooth_procs, end_mode=DEFAULT_END_MODE):
         return smoothed_points
     elif end_mode == 'extend':
         extended_start = [
-            (x, poly_eval(fit(degree, labeled_window_slices[0][1]), x))
+            (x, poly_eval(fit(degree, labeled_window_slices[0][1], matrix_check=matrix_check), x))
             for x, _ in data[:smoothable_start]
         ]
         extended_end = [
-            (x, poly_eval(fit(degree, labeled_window_slices[-1][1]), x))
+            (x, poly_eval(fit(degree, labeled_window_slices[-1][1], matrix_check=matrix_check), x))
             for x, _ in data[smoothable_end:]
         ]
         return extended_start + smoothed_points + extended_end
@@ -109,8 +110,8 @@ def _spawn_do_smooth(args):
         # Workaround for bpo-8296
         raise Exception('Re-raised interrupt') from e
 
-def _do_smooth(degree, x, window_slice):
-    return poly_eval(fit(degree, window_slice), x)
+def _do_smooth(degree, x, window_slice, matrix_check):
+    return poly_eval(fit(degree, window_slice, matrix_check=matrix_check), x)
 
 def _guess_cpu_count():
     try:
@@ -164,7 +165,7 @@ def _run_cli():
     if in_filename != None:
         try:
             in_file = open(in_filename, 'r')
-        except FileNotFoundError:
+        except OSError:
             panic('Failed to open input file for reading')
     else:
         in_file = sys.stdin
