@@ -52,6 +52,10 @@ MIN_WAVELENGTH_INCREASE_NM = 8
 MAX_WAVELENGTH_INCREASE_NM = 140
 SAVITZKY_GOLAY_DEGREE = 4
 SAVITZKY_GOLAY_WINDOW = 75
+PEAK_DETECTION_INTENSITY_THRESHOLD = 5
+PEAK_DETECTION_WINDOW_LENGTH = 3
+PEAK_DETECTION_WINDOW_WIDTH = 50
+MAX_INLIER_INTENSITY = 600
 
 def parse_spectrometer_csv(file):
     for _ in range(5):
@@ -85,13 +89,10 @@ def raman_process(data):
     ]
     # fit a quartic to intensity *by wavenumber shift* to approximate fluorescent
     # interference and subtract it out
+    # also clamp intensities to minimum 0
     coeffs = fit(4, data, matrix_check=False)
     data = [
-        (wavenumber_shift, intensity - poly_eval(coeffs, wavenumber_shift))
-        for wavenumber_shift, intensity in data
-    ]
-    data = [
-        (wavenumber_shift, max(0, intensity))
+        (wavenumber_shift, max(0, intensity - poly_eval(coeffs, wavenumber_shift)))
         for wavenumber_shift, intensity in data
     ]
     # apply savitzky-golay smoothing, discarding boundaries of data that can't
@@ -104,20 +105,27 @@ def raman_process(data):
         end_mode='clip',
         matrix_check=False
     )
+    # drop (don't clamp) out-out-bounds intensities produced by smoothing
+    # algorithm, which appear as crazy outliers on a graph
     data = [
         (wavenumber_shift, intensity)
         for wavenumber_shift, intensity in data
-        if 0 <= intensity < 600
+        if 0 <= intensity < MAX_INLIER_INTENSITY
     ]
     data = sorted(data, key=lambda p: p[0])
     window = []
     peaks = []
     for point in data:
+        # a peak is detected as a point that, at lesser frequencies, always increases for
+        # PEAK_DETECTION_WINDOW_WIDTH cm^-1 at least PEAK_DETECTION_INTENSITY_THRESHOLD before
+        # decreasing at the next higher frequency
         wavenumber_shift, intensity = point
         window.append(point)
-        if len(window) >= 3 and window[-1][0] - window[1][0] > 50:
+        if (len(window) >= PEAK_DETECTION_WINDOW_LENGTH
+                and window[-1][0] - window[1][0] > PEAK_DETECTION_WINDOW_WIDTH):
             del window[0]
-            if window[-2][1] - window[0][1] > 5 and window[-2][1] > window[-1][1]:
+            if (window[-2][1] - window[0][1] > PEAK_DETECTION_INTENSITY_THRESHOLD
+                    and window[-2][1] > window[-1][1]):
                 peaks.append(window[-2][0])
     return data, peaks
 
@@ -163,12 +171,12 @@ def _run_cli():
             file=sys.stderr)
     if spectrum_out_filename != None:
         try:
-            spectrum_out_file = open(out_filename, 'w')
+            spectrum_out_file = open(spectrum_out_filename, 'w')
         except OSError:
             panic('Failed to open spectrum output file for writing')
     if peaks_out_filename != None:
         try:
-            peaks_out_file = open(out_filename, 'w')
+            peaks_out_file = open(peaks_out_filename, 'w')
         except OSError:
             panic('Failed to open peaks output file for writing')
     if stdout_content == 'spectrum':
