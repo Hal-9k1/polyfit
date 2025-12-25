@@ -1,15 +1,4 @@
-import multiprocessing
-import os
-import random
-import sys
-import traceback
-from fit import fit, poly_eval
-from cli_util import panic, parse_args, pos_int, read_points_from_csv
-
-DEFAULT_MAX_PROCESSES = 1
-DEFAULT_END_MODE = 'clip'
-
-HELP_TEXT = '''Applies Savitzsky-Golay smoothing to a 2D dataset.
+'''Applies Savitzsky-Golay smoothing to a 2D dataset.
 
 Outputs a copy of the input data with the middle section (half the window length
 inwards on either side) smoothed.
@@ -56,6 +45,17 @@ Arguments:
 Exit code:
     0 on success, 1 on any argument parsing or data error.
 '''
+
+import multiprocessing
+import os
+import random
+import sys
+import traceback
+from fit import fit, poly_eval
+from cli_util import panic, parse_args, pos_int, read_points_from_csv
+
+DEFAULT_MAX_PROCESSES = 1
+DEFAULT_END_MODE = 'clip'
 
 def smooth(degree, data, window, smooth_procs, *, end_mode=DEFAULT_END_MODE, matrix_check=True):
     if smooth_procs < 1:
@@ -152,7 +152,7 @@ def _run_cli():
     show_traceback = 'traceback' in named
 
     if 'help' in named:
-        print(HELP_TEXT, file=sys.stderr)
+        print(__doc__, file=sys.stderr)
         exit(0)
 
     if degree == None:

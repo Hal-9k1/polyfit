@@ -1,9 +1,4 @@
-import os
-import random
-import sys
-from cli_util import panic, parse_args, read_points_from_csv, pos_int, pos_float
-
-HELP_TEXT = '''Fits a polynomial curve to a 2D data set.
+'''Fits a polynomial curve to a 2D data set.
 
 Uses matrix operations to find the least squares fit. Coefficients of the fitted
 curve are printed to standard output, highest degree first.
@@ -25,6 +20,11 @@ Arguments:
 Exit code:
     0 on success, 1 on any argument parsing or data error.
 '''
+
+import os
+import random
+import sys
+from cli_util import panic, parse_args, read_points_from_csv, pos_int, pos_float
 
 def fit(degree, data, *, matrix_check=True):
     mat = _Mat(
@@ -191,7 +191,7 @@ def _run_cli():
     filename = positional[0] if len(positional) else None
 
     if 'help' in named:
-        print(HELP_TEXT, file=sys.stderr)
+        print(__doc__, file=sys.stderr)
         exit(0)
 
     if degree == None:

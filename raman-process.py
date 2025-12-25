@@ -1,10 +1,4 @@
-import sys
-
-from fit import fit, poly_eval
-from smooth import smooth
-from cli_util import panic, parse_args, read_points_from_csv, pos_int, pos_float
-
-HELP_TEXT = '''Analyzes Raman data.
+'''Analyzes Raman data.
 
 Given Spectrum Studio CSV data, outputs a two-column Raman spectrum CSV.
 - Converts wavelengths to wavenumber Stokes shifts (wavenumber/energy DECREASING,
@@ -45,6 +39,12 @@ Arguments:
 Exit code:
     0 on success, 1 on any argument parsing or data error.
 '''
+
+import sys
+
+from fit import fit, poly_eval
+from smooth import smooth
+from cli_util import panic, parse_args, read_points_from_csv, pos_int, pos_float
 
 NM_PER_CM = 10**7
 INCIDENT_NM = 532
@@ -140,12 +140,9 @@ def _run_cli():
     spectrum_out_filename = named.get('spectrum')
     peaks_out_filename = named.get('peaks')
     stdout_content = named.get('stdout')
-    if spectrum_out_filename == peaks_out_filename == stdout_content == None:
-        print('Doing analysis with no output selected. Specify --spectrum, --peaks, or --stdout.',
-            file=sys.stderr)
 
     if 'help' in named:
-        print(HELP_TEXT, file=sys.stderr)
+        print(__doc__, file=sys.stderr)
         exit(0)
 
     if len(positional) > 1:
@@ -161,6 +158,9 @@ def _run_cli():
 
     spectrum_out_file = None
     peaks_out_file = None
+    if spectrum_out_filename == peaks_out_filename == stdout_content == None:
+        print('Doing analysis with no output selected. Specify --spectrum, --peaks, or --stdout.',
+            file=sys.stderr)
     if spectrum_out_filename != None:
         try:
             spectrum_out_file = open(out_filename, 'w')
