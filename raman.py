@@ -16,9 +16,9 @@ If none of --spectrum, --peaks, or --stdout are given, a warning will be printed
 and none of the produced data will not be output.
 
 Usage:
-    python raman-process.py [INPUT_FILE] [--spectrum=SPECTRUM_OUTPUT_FILE]
+    python raman.py [INPUT_FILE] [--spectrum=SPECTRUM_OUTPUT_FILE]
     [--peaks=PEAKS_OUTPUT_FILE] [--stdout=STDOUT_CONTENT]
-    python raman-process.py --help
+    python raman.py --help
 
 Arguments:
     INPUT_FILE: optional; the spectrometer CSV file to read.
