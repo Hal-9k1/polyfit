@@ -53,8 +53,7 @@ MAX_WAVELENGTH_INCREASE_NM = 140
 SAVITZKY_GOLAY_DEGREE = 4
 SAVITZKY_GOLAY_WINDOW = 75
 PEAK_DETECTION_INTENSITY_THRESHOLD = 5
-PEAK_DETECTION_WINDOW_LENGTH = 3
-PEAK_DETECTION_WINDOW_WIDTH = 50
+PEAK_DETECTION_WINDOW_WIDTH = 100
 MAX_INLIER_INTENSITY = 600
 
 def parse_spectrometer_csv(file):
@@ -73,6 +72,30 @@ def parse_spectrometer_csv(file):
         points.append((row[1], row[3]))
     file.close()
     return points
+
+def detect_peaks(data):
+    window = []
+    peaks = []
+    for point in sorted(data, key=lambda p: p[0]):
+        wavenumber_shift, intensity = point
+        window.append(point)
+        if len(window) < 3:
+            continue
+        half = len(window) // 2
+        left = window[0]
+        midleft = window[half - 1]
+        middle = window[half]
+        midright = window[half + 1]
+        right = window[-1]
+        if right[0] - left[0] < PEAK_DETECTION_WINDOW_WIDTH:
+            continue
+        del window[0]
+        long_check = (min(middle[1] - left[1], middle[1] - right[1])
+            > PEAK_DETECTION_INTENSITY_THRESHOLD)
+        short_check = max(midleft[1], middle[1], midright[1]) == middle[1]
+        if long_check and short_check:
+            peaks.append(middle[0])
+    return peaks
 
 def raman_process(data):
     # filter out intensities that haven't shifted much from incident because
@@ -105,28 +128,14 @@ def raman_process(data):
         end_mode='clip',
         matrix_check=False
     )
-    # drop (don't clamp) out-out-bounds intensities produced by smoothing
+    # drop (don't clamp) out-of-bounds intensities produced by smoothing
     # algorithm, which appear as crazy outliers on a graph
     data = [
         (wavenumber_shift, intensity)
         for wavenumber_shift, intensity in data
         if 0 <= intensity < MAX_INLIER_INTENSITY
     ]
-    data = sorted(data, key=lambda p: p[0])
-    window = []
-    peaks = []
-    for point in data:
-        # a peak is detected as a point that, at lesser frequencies, always increases for
-        # PEAK_DETECTION_WINDOW_WIDTH cm^-1 at least PEAK_DETECTION_INTENSITY_THRESHOLD before
-        # decreasing at the next higher frequency
-        wavenumber_shift, intensity = point
-        window.append(point)
-        if (len(window) >= PEAK_DETECTION_WINDOW_LENGTH
-                and window[-1][0] - window[1][0] > PEAK_DETECTION_WINDOW_WIDTH):
-            del window[0]
-            if (window[-2][1] - window[0][1] > PEAK_DETECTION_INTENSITY_THRESHOLD
-                    and window[-2][1] > window[-1][1]):
-                peaks.append(window[-2][0])
+    peaks = detect_peaks(data)
     return data, peaks
 
 def _typecheck_stdout(v):
