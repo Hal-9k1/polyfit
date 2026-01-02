@@ -1,4 +1,5 @@
 import sys
+from decimal import Decimal
 
 def panic(msg):
     print(msg, file=sys.stderr)
@@ -55,3 +56,6 @@ def read_points_from_csv(file):
             panic('Too many fields for data point')
         points.append(point)
     return points
+
+def print_points(points, file=sys.stdout):
+    file.writelines(f'{Decimal(x)},{Decimal(y)}\n' for x, y in points)

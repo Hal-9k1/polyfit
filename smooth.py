@@ -52,7 +52,7 @@ import random
 import sys
 import traceback
 from fit import fit, poly_eval
-from cli_util import panic, parse_args, pos_int, read_points_from_csv
+from cli_util import panic, parse_args, pos_int, read_points_from_csv, print_points
 
 DEFAULT_MAX_PROCESSES = 1
 DEFAULT_END_MODE = 'clip'
@@ -189,7 +189,7 @@ def _run_cli():
             traceback.print_tb(e.__traceback__, file=sys.stderr)
         exit(1)
 
-    out_file.writelines(f'{point[0]},{point[1]}\n' for point in smoothed)
+    print_points(smoothed, file=out_file)
 
 if __name__ == '__main__':
     _run_cli()

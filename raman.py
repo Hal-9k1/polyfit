@@ -44,7 +44,7 @@ import sys
 
 from fit import fit, poly_eval
 from smooth import smooth
-from cli_util import panic, parse_args, read_points_from_csv, pos_int, pos_float
+from cli_util import panic, parse_args, read_points_from_csv, pos_int, pos_float, print_points
 
 NM_PER_CM = 10**7
 INCIDENT_NM = 532
@@ -198,7 +198,7 @@ def _run_cli():
     if spectrum_out_file != None:
         spectrum_out_file.write('Wavenumber shift from 532nm (cm^-1),'
             + 'Intensity (arbitrary spectrometer units)\n')
-        spectrum_out_file.writelines(f'{point[0]},{point[1]}\n' for point in data)
+        print_points(data, file=spectrum_out_file)
         spectrum_out_file.close()
     if peaks_out_file != None:
         peaks_out_file.writelines(f'{peak}\n' for peak in peaks)
