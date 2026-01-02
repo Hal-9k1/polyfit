@@ -67,9 +67,11 @@ def parse_spectrometer_csv(file):
             break
         try:
             row = [float(num) for num in line.rstrip('\n').split(',')]
+            points.append((row[1], row[3]))
         except ValueError as e:
             raise ValueError(f'Encountered non-numeric data: \'{line}\'') from e
-        points.append((row[1], row[3]))
+        except IndexError as e:
+            raise ValueError(f'Encountered row with too few columns: \'{line}\'') from e
     file.close()
     return points
 

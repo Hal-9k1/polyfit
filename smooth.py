@@ -182,7 +182,7 @@ def _run_cli():
     in_file.close()
     
     try:
-        smoothed = smooth(degree, points, window, smooth_procs, end_mode)
+        smoothed = smooth(degree, points, window, smooth_procs, end_mode=end_mode)
     except Exception as e:
         print(f'{type(e).__name__}: {e}', file=sys.stderr)
         if show_traceback:
