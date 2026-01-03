@@ -45,6 +45,7 @@ import sys
 from fit import fit, poly_eval
 from smooth import smooth
 from cli_util import panic, parse_args, read_points_from_csv, pos_int, pos_float, print_points
+from hilbert import hilbert_decomp
 
 NM_PER_CM = 10**7
 INCIDENT_NM = 532
@@ -74,6 +75,29 @@ def parse_spectrometer_csv(file):
             raise ValueError(f'Encountered row with too few columns: \'{line}\'') from e
     file.close()
     return points
+
+def _stddev(data):
+    # sqrt of mean of squares of devs from mean
+    l = len(data)
+    mean = sum(data) / l
+    sum_sqdev = sum(pow(x - mean, 2) for x in data)
+    return pow(sum_sqdev / l, 0.5)
+
+def detect_peaks_hilbert(data, noise):
+    data = sorted(data, key=lambda p: p[0])
+    noise_stddev = _stddev([p[0] for p in noise])
+    extrema = []
+    for past, present, future in zip(data, data[1:], data[2:]):
+        if (past[1] < present[1]) == (future[1] < present[1]):
+            # (wavenumber_shift, intensity, is_maximum)
+            extrema.append((*present, past[1] < present[1]))
+    peaks = []
+    for past, present, future in zip(extrema, extrema[1:], extrema[2:]):
+        if present[2]:
+            avg_fall = present[1] - (past[1] + future[1]) / 2
+            if avg_fall > noise_stddev:
+                peaks.append(present[0])
+    return peaks
 
 def detect_peaks(data):
     window = []
@@ -137,6 +161,9 @@ def raman_process(data):
         for wavenumber_shift, intensity in data
         if 0 <= intensity < MAX_INLIER_INTENSITY
     ]
+
+    high_energy, data = hilbert_decomp(data)
+    #peaks = detect_peaks_hilbert(data, high_energy)
     peaks = detect_peaks(data)
     return data, peaks
 
