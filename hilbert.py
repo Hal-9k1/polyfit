@@ -31,8 +31,25 @@ def _extended_moving_avg(data):
         res.append(sum(extended[i:i + _AVG_WINDOW_SIZE]) / _AVG_WINDOW_SIZE)
     return res
 
+def _debug_cache(fn, deps, gen):
+    import pickle
+    try:
+        f = open(fn, 'rb')
+        stored_deps, stored_data = pickle.load(f)
+        f.close()
+    except:
+        stored_deps = object()
+    if deps == stored_deps:
+        return stored_data
+    else:
+        data = gen()
+        f = open(fn, 'wb')
+        pickle.dump((deps, data), f)
+        f.close()
+        return data
+
 def hilbert_decomp(data):
-    hilbert_data = hilbert(data)
+    hilbert_data = _debug_cache('hilbert.pickle', data, lambda: hilbert(data))
     # instantaneous phase is atan(hilbert[x(t)] / x(t))
     phase = [
         (x, math.atan2(tfmd, orig))
@@ -56,17 +73,28 @@ def hilbert_decomp(data):
     # TODO: word that better
     smooth_amp = list(zip([p[0] for p in amp], _extended_moving_avg([p[1] for p in amp])))
     smooth_freq = list(zip([p[0] for p in freq], _extended_moving_avg([p[1] for p in freq])))
-    return smooth_amp
+    signal = []
+    phase = 0
+    for i in range(len(freq) - 1):
+        x = freq[i][0]
+        x1 = freq[i + 1][0]
+        a = amp[i][1]
+        f = freq[i][1]
+        f1 = freq[i + 1][1]
+        signal.append((x, a * math.cos(phase)))
+        phase += 0.5 * (f + f1) * (x1 - x)
+    return signal
     return [], []
 
 def _run_cli():
     freq = 0.125
     fac = 0.5
+    rider_amp = 0.25
     data = [
-        (x * fac, math.sin(freq * (x * fac)) + 0.25 * math.sin(freq * 4 * (x * fac)))
+        (x * fac, math.sin(freq * (x * fac)) + rider_amp * math.sin(freq * 4 * (x * fac)))
         for x in range(int(1000 / fac))
     ]
-    print_points(data)
+    print_points(hilbert_decomp(data))
 
 if __name__ == '__main__':
     _run_cli()
