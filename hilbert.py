@@ -1,8 +1,10 @@
 from cli_util import print_points
 import math
 
+_SINC_EPSILON = pow(10, -4)
 _HILBERT_EPSILON = pow(10, -4)
-_AVG_WINDOW_SIZE = 40
+_LOW_PASS_WINDOW_SIZE = 20
+_LOW_PASS_CUTOFF = 0.001
 
 def hilbert(data):
     # EXPECTS DATA SORTED BY data[i][0]
@@ -25,14 +27,14 @@ def hilbert(data):
 
 def hilbert_decomp(data):
     data = sorted(data, key=lambda p: p[0])
-    hilbert_data = _debug_cache('hilbert.pickle', data, lambda: hilbert(data))
+    hilbert_data = _debug_cache('cache-hilbert.pickle', data, lambda: hilbert(data))
     phase = _analytical_phase(data, hilbert_data)
     amp = _analytical_magnitude(data, hilbert_data)
     freq = [
         (p0[0], (p1[1] - p0[1]) / (p1[0] - p0[0]))
         for p0, p1 in zip(phase, phase[1:])
     ]
-    extracted_freq = _extended_moving_avg_points(freq)
+    extracted_freq = _low_pass(freq)
     in_phase_proj = []
     hb_phase_proj = []
     integral = 0
@@ -53,23 +55,32 @@ def hilbert_decomp(data):
         )
         # trapezoid rule:
         integral += (x_next - x) * (freq_all_next + freq_ref_next + freq_all + freq_ref) * 0.5
-    in_phase_proj = _extended_moving_avg_points(in_phase_proj)
-    hb_phase_proj = _extended_moving_avg_points(hb_phase_proj)
+    in_phase_proj = _low_pass(in_phase_proj)
+    hb_phase_proj = _low_pass(hb_phase_proj)
     extracted_amp = [(x, 2 * a) for x, a in _analytical_magnitude(in_phase_proj, hb_phase_proj)]
     extracted_phase = _analytical_phase(in_phase_proj, hb_phase_proj)
     signal = [(x, a * math.cos(p)) for (x, a), (_, p) in zip(extracted_amp, extracted_phase)]
     return signal, [(x, orig - extracted) for (x, orig), (_, extracted) in zip(data, signal)]
 
-def _extended_moving_avg(data):
-    res = []
-    half_winsize = math.ceil(_AVG_WINDOW_SIZE / 2)
-    extended = [data[0]] * half_winsize + data + [data[-1]] * half_winsize
-    for i in range(len(data)):
-        res.append(sum(extended[i:i + _AVG_WINDOW_SIZE]) / _AVG_WINDOW_SIZE)
-    return res
+def _sinc_filter(x):
+    if abs(x) < _SINC_EPSILON:
+        return 1
+    else:
+        return math.sin(2 * _LOW_PASS_CUTOFF * math.pi * x) / (math.pi * x)
 
-def _extended_moving_avg_points(data):
-    return list(zip(_sel(data, 0), _extended_moving_avg(_sel(data, 1))))
+def _low_pass(data):
+    half_win = math.ceil(_LOW_PASS_WINDOW_SIZE / 2)
+    extended = [data[0]] * half_win + data + [data[-1]] * half_win
+    result = []
+    for i in range(len(data)):
+        window = data[i - half_win:i + half_win]
+        x = data[i][0]
+        integral = 0
+        for (x0, y0), (x1, y1) in zip(window, window[1:]):
+            # trapezoid rule, 0.5 factored out
+            integral += (x1 - x0) * (y0 + y1)
+        result.append((x, integral * 0.5))
+    return result
 
 def _analytical_phase(real, imag):
     return [(x, math.atan2(i, r)) for (x, r), (_, i) in zip(real, imag)]

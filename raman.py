@@ -99,12 +99,15 @@ def detect_peaks_hilbert(data, noise):
         if (past[1] < present[1]) == (future[1] < present[1]):
             # (wavenumber_shift, intensity, is_maximum)
             extrema.append((*present, past[1] < present[1]))
-    peaks = []
+    avg_half_widths = []
     for past, present, future in zip(extrema, extrema[1:], extrema[2:]):
         if present[2]:
-            avg_fall = present[1] - (past[1] + future[1]) / 2
-            if avg_fall > noise_stddev:
-                peaks.append(present[0])
+            avg_half_widths.append((present[:2], present[0] - (past[0] + future[0]) / 2))
+    avg_half_width = sum([p[1] for p in avg_half_widths]) / len(avg_half_widths)
+    peaks = []
+    for (wavenumber_shift, intensity), point_avg_half_width in avg_half_widths:
+        if point_avg_half_width > avg_half_width and intensity > noise_stddev:
+            peaks.append(wavenumber_shift)
     return peaks
 
 def detect_peaks(data):
@@ -144,35 +147,38 @@ def raman_process(data):
         (NM_PER_CM / INCIDENT_NM - NM_PER_CM / wavelength, intensity)
         for wavelength, intensity in data
     ]
-    # fit a quartic to intensity *by wavenumber shift* to approximate fluorescent
-    # interference and subtract it out
-    # also clamp intensities to minimum 0
-    coeffs = fit(4, data, matrix_check=False)
-    data = [
-        (wavenumber_shift, max(0, intensity - poly_eval(coeffs, wavenumber_shift)))
-        for wavenumber_shift, intensity in data
-    ]
+    # clamp intensities to minimum 0
+    #data = [
+    #    (wavenumber_shift, max(0, intensity))
+    #    for wavenumber_shift, intensity in data
+    #]
     # apply savitzky-golay smoothing, discarding boundaries of data that can't
     # have full windows
-    data = smooth(
-        SAVITZKY_GOLAY_DEGREE,
-        data,
-        SAVITZKY_GOLAY_WINDOW,
-        1,
-        end_mode='clip',
-        matrix_check=False
-    )
+    #data = smooth(
+    #    SAVITZKY_GOLAY_DEGREE,
+    #    data,
+    #    SAVITZKY_GOLAY_WINDOW,
+    #    1,
+    #    end_mode='clip',
+    #    matrix_check=False
+    #)
     # drop (don't clamp) out-of-bounds intensities produced by smoothing
     # algorithm, which appear as crazy outliers on a graph
-    data = [
-        (wavenumber_shift, intensity)
-        for wavenumber_shift, intensity in data
-        if 0 <= intensity < MAX_INLIER_INTENSITY
-    ]
+    #data = [
+    #    (wavenumber_shift, intensity)
+    #    for wavenumber_shift, intensity in data
+    #    if 0 <= intensity < MAX_INLIER_INTENSITY
+    #]
 
-    high_energy, data = hilbert_decomp(data)
-    #peaks = detect_peaks_hilbert(data, high_energy)
-    peaks = detect_peaks(data)
+    residual, high_energy = hilbert_decomp(data)
+    return residual, []
+    coeffs = fit(4, data, matrix_check=False)
+    data = [
+        (wavenumber_shift, intensity - poly_eval(coeffs, wavenumber_shift))
+        for wavenumber_shift, intensity in data
+    ]
+    peaks = detect_peaks_hilbert(data, high_energy)
+    #peaks = detect_peaks(data)
     return data, peaks
 
 def _typecheck_stdout(v):
