@@ -59,3 +59,6 @@ def read_points_from_csv(file):
 
 def print_points(points, file=sys.stdout):
     file.writelines(f'{Decimal(x)},{Decimal(y)}\n' for x, y in points)
+
+def print_reals(nums, file=sys.stdout):
+    file.writelines(f'{Decimal(x)}\n' for x in nums)

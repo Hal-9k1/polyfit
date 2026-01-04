@@ -44,7 +44,15 @@ import sys
 
 from fit import fit, poly_eval
 from smooth import smooth
-from cli_util import panic, parse_args, read_points_from_csv, pos_int, pos_float, print_points
+from cli_util import (
+    panic,
+    parse_args,
+    read_points_from_csv,
+    pos_int,
+    pos_float,
+    print_points,
+    print_reals
+)
 from hilbert import hilbert_decomp
 
 NM_PER_CM = 10**7
@@ -230,7 +238,7 @@ def _run_cli():
         print_points(data, file=spectrum_out_file)
         spectrum_out_file.close()
     if peaks_out_file != None:
-        peaks_out_file.writelines(f'{peak}\n' for peak in peaks)
+        print_reals(data, file=peaks_out_file)
         peaks_out_file.close()
 
 if __name__ == '__main__':

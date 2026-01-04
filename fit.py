@@ -24,7 +24,7 @@ Exit code:
 import os
 import random
 import sys
-from cli_util import panic, parse_args, read_points_from_csv, pos_int, pos_float
+from cli_util import panic, parse_args, read_points_from_csv, pos_int, pos_float, print_reals
 
 def fit(degree, data, *, matrix_check=True):
     mat = _Mat(
@@ -212,8 +212,7 @@ def _run_cli():
     
     coeffs = fit(degree, points)
     print(f'Error: {_get_error(coeffs, points)}')
-    for coeff in reversed(coeffs):
-        print(coeff)
+    print_reals(reversed(coeffs))
 
 if __name__ == '__main__':
     _run_cli()
