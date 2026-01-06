@@ -1,29 +1,19 @@
 from cli_util import print_points
 import math
 
-_SINC_EPSILON = pow(10, -7)
-_HILBERT_EPSILON = pow(10, -6)
-_LOW_PASS_WINDOW_SIZE = 160
-_LOW_PASS_CUTOFF = 0.15
+_SINC_EPSILON = pow(10, -8)
+_HILBERT_EPSILON = pow(10, -8)
+_LOW_PASS_CUTOFF = 0.05
 
 def hilbert(data):
-    # EXPECTS DATA SORTED BY data[i][0]
-    tfmd = []
-    half_rpi = 0.5 / math.pi
-    for p in data:
-        integral = 0
-        for p0, p1 in zip(data, data[1:]):
-            if min(abs(p[0] - p0[0]), abs(p[0] - p1[0]), _HILBERT_EPSILON) != _HILBERT_EPSILON:
-                # not sure how to evaluate a cauchy principal value numerically
-                # so we're skipping the undefined cases
-                continue
-            dx = p1[0] - p0[0]
-            y0 = p0[1] / (p[0] - p0[0])
-            y1 = p1[1] / (p[0] - p1[0])
-            # trapezoid rule, but multiplying by 0.5 is factored out
-            integral += dx * (y0 + y1)
-        tfmd.append((p[0], half_rpi * integral))
-    return tfmd
+    return [
+        (t, _integrate([
+            (x, y / (t - x))
+            for x, y in data
+            if abs(t - x) > _HILBERT_EPSILON
+        ]) / math.pi)
+        for (t, _) in data
+    ]
 
 def hilbert_decomp(data):
     data = sorted(data, key=lambda p: p[0])
@@ -62,27 +52,20 @@ def hilbert_decomp(data):
     signal = [(x, a * math.cos(p)) for (x, a), (_, p) in zip(extracted_amp, extracted_phase)]
     return signal, [(x, orig - extracted) for (x, orig), (_, extracted) in zip(data, signal)]
 
+def _integrate(data):
+    integral = 0
+    for p0, p1 in zip(data, data[1:]):
+        integral += (p1[0] - p0[0]) * (p1[1] + p0[1])
+    return integral * 0.5
+
 def _sinc_filter(x):
     if abs(x) < _SINC_EPSILON:
-        return 1
+        return 2 * _LOW_PASS_CUTOFF
     else:
         return math.sin(2 * _LOW_PASS_CUTOFF * math.pi * x) / (math.pi * x)
 
 def _low_pass(data):
-    half_win = math.ceil(_LOW_PASS_WINDOW_SIZE / 2)
-    extended = [data[0]] * half_win + data + [data[-1]] * half_win
-    result = []
-    for i in range(len(data)):
-        window = extended[i:i + _LOW_PASS_WINDOW_SIZE]
-        x = data[i][0]
-        integral = 0
-        for (x0, y0), (x1, y1) in zip(window, window[1:]):
-            # trapezoid rule, 0.5 factored out
-            print(x - x0, _sinc_filter(x - x0))
-            integral += (x1 - x0) * (y0 * _sinc_filter(x - x0) + y1 * _sinc_filter(x - x1))
-        result.append((x, integral * 0.5))
-        #result.append((x, sum(p[1] for p in window) / len(window)))
-    return result
+    return [(t, _integrate([(x, y * _sinc_filter(t - x)) for x, y in data])) for (t, _) in data]
 
 def _analytical_phase(real, imag):
     return [(x, math.atan2(i, r)) for (x, r), (_, i) in zip(real, imag)]
@@ -115,15 +98,16 @@ def _test_data_gen():
     fac = 0.5
     rider_amp = 0.25
     return [
-        (x * fac, math.sin(freq * (x * fac)) + rider_amp * math.sin(freq * 4 * (x * fac)))
+        (x * fac, math.sin(freq * (x * fac)) + rider_amp * math.sin(freq * 8 * (x * fac)))
         for x in range(int(1000 / fac))
     ]
 
 def _run_cli():
     data = _test_data_gen()
     #print_points(data)
-    #print_points(hilbert_decomp(data)[1])
-    print_points(_low_pass(data))
+    print_points(hilbert_decomp(data)[0])
+    #print_points(_low_pass(data))
+    #print_points(hilbert(hilbert(data)))
 
 if __name__ == '__main__':
     _run_cli()

@@ -147,7 +147,6 @@ def raman_process(data):
         (NM_PER_CM / INCIDENT_NM - NM_PER_CM / wavelength, intensity)
         for wavelength, intensity in data
     ]
-    from hilbert import _low_pass
     # clamp intensities to minimum 0
     #data = [
     #    (wavenumber_shift, max(0, intensity))
