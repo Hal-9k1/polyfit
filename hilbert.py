@@ -1,10 +1,10 @@
 from cli_util import print_points
 import math
 
-_SINC_EPSILON = pow(10, -4)
-_HILBERT_EPSILON = pow(10, -4)
-_LOW_PASS_WINDOW_SIZE = 20
-_LOW_PASS_CUTOFF = 0.001
+_SINC_EPSILON = pow(10, -7)
+_HILBERT_EPSILON = pow(10, -6)
+_LOW_PASS_WINDOW_SIZE = 160
+_LOW_PASS_CUTOFF = 0.15
 
 def hilbert(data):
     # EXPECTS DATA SORTED BY data[i][0]
@@ -73,13 +73,15 @@ def _low_pass(data):
     extended = [data[0]] * half_win + data + [data[-1]] * half_win
     result = []
     for i in range(len(data)):
-        window = data[i - half_win:i + half_win]
+        window = extended[i:i + _LOW_PASS_WINDOW_SIZE]
         x = data[i][0]
         integral = 0
         for (x0, y0), (x1, y1) in zip(window, window[1:]):
             # trapezoid rule, 0.5 factored out
-            integral += (x1 - x0) * (y0 + y1)
+            print(x - x0, _sinc_filter(x - x0))
+            integral += (x1 - x0) * (y0 * _sinc_filter(x - x0) + y1 * _sinc_filter(x - x1))
         result.append((x, integral * 0.5))
+        #result.append((x, sum(p[1] for p in window) / len(window)))
     return result
 
 def _analytical_phase(real, imag):
@@ -120,7 +122,8 @@ def _test_data_gen():
 def _run_cli():
     data = _test_data_gen()
     #print_points(data)
-    print_points(hilbert_decomp(data)[1])
+    #print_points(hilbert_decomp(data)[1])
+    print_points(_low_pass(data))
 
 if __name__ == '__main__':
     _run_cli()

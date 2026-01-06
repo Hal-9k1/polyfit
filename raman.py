@@ -147,6 +147,7 @@ def raman_process(data):
         (NM_PER_CM / INCIDENT_NM - NM_PER_CM / wavelength, intensity)
         for wavelength, intensity in data
     ]
+    from hilbert import _low_pass
     # clamp intensities to minimum 0
     #data = [
     #    (wavenumber_shift, max(0, intensity))
@@ -170,8 +171,8 @@ def raman_process(data):
     #    if 0 <= intensity < MAX_INLIER_INTENSITY
     #]
 
-    residual, high_energy = hilbert_decomp(data)
-    return residual, []
+    data, high_energy = hilbert_decomp(data)
+    return data, []
     coeffs = fit(4, data, matrix_check=False)
     data = [
         (wavenumber_shift, intensity - poly_eval(coeffs, wavenumber_shift))
