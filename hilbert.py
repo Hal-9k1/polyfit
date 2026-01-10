@@ -93,12 +93,20 @@ def _debug_cache(fn, deps, gen):
 def _sel(l, i):
     return [p[i] for p in l]
 
-def _test_data_gen():
-    freq = 0.125
-    fac = 0.5
+def _test_data_gen_func(x):
+    freq = math.pi * (x + 99) / 800
+    amp = 1
     rider_amp = 0.25
+    rider_freq = 20 * math.sin(27 * x)
+
+    signal = amp * math.sin(freq * x)
+    rider = rider_amp * math.sin(rider_freq * x)
+    return signal + rider
+
+def _test_data_gen():
+    fac = 0.5
     return [
-        (x * fac, math.sin(freq * (x * fac)) + rider_amp * math.sin(freq * 8 * (x * fac)))
+        (x * fac, _test_data_gen_func(x * fac))
         for x in range(int(1000 / fac))
     ]
 
