@@ -1,56 +1,66 @@
 from cli_util import print_points
 import math
+import multiprocessing
 
-_SINC_EPSILON = pow(10, -8)
-_HILBERT_EPSILON = pow(10, -8)
+_SINC_EPSILON = pow(10, -12)
+_HILBERT_EPSILON = pow(10, -12)
 _LOW_PASS_CUTOFF = 0.02
 
-def hilbert(data):
-    return [
-        (t, _integrate([
-            (x, y / (t - x))
-            for x, y in data
-            if abs(t - x) > _HILBERT_EPSILON
-        ]) / math.pi)
-        for (t, _) in data
-    ]
+def hilbert(data, pool=None):
+    return _parallelize(sorted(data, key=lambda p: p[0]), _hilbert_kernel, pool)
+
+def _hilbert_kernel(i, data):
+    t = data[i][0]
+    return (t, _integrate([
+        (x, y / (t - x))
+        for x, y in data
+        if abs(t - x) > _HILBERT_EPSILON
+    ]) / math.pi)
 
 def hilbert_decomp(data):
-    data = sorted(data, key=lambda p: p[0])
-    hilbert_data = _debug_cache('cache-hilbert.pickle', data, lambda: hilbert(data))
-    phase = _analytical_phase(data, hilbert_data)
-    amp = _analytical_magnitude(data, hilbert_data)
-    freq = [
-        (p0[0], (p1[1] - p0[1]) / (p1[0] - p0[0]))
-        for p0, p1 in zip(phase, phase[1:])
-    ]
-    extracted_freq = _low_pass(freq)
-    in_phase_proj = []
-    hb_phase_proj = []
-    integral = 0
-    for i in range(len(freq) - 1):
-        x = freq[i][0]
-        x_next = freq[i + 1][0]
-        freq_all = freq[i][1]
-        freq_all_next = freq[i + 1][1]
-        amp_all = amp[i][1]
-        phase_all = phase[i][1]
-        freq_ref = extracted_freq[i][1]
-        freq_ref_next = extracted_freq[i + 1][1]
-        in_phase_proj.append(
-            (x, 0.5 * amp_all * (math.cos(phase_all) + math.cos(integral + phase_all)))
-        )
-        hb_phase_proj.append(
-            (x, 0.5 * amp_all * (math.sin(phase_all) - math.sin(integral + phase_all)))
-        )
-        # trapezoid rule:
-        integral += (x_next - x) * (freq_all_next + freq_ref_next + freq_all + freq_ref) * 0.5
-    in_phase_proj = _low_pass(in_phase_proj)
-    hb_phase_proj = _low_pass(hb_phase_proj)
-    extracted_amp = [(x, 2 * a) for x, a in _analytical_magnitude(in_phase_proj, hb_phase_proj)]
-    extracted_phase = _analytical_phase(in_phase_proj, hb_phase_proj)
-    signal = [(x, a * math.cos(p)) for (x, a), (_, p) in zip(extracted_amp, extracted_phase)]
-    return signal, [(x, orig - extracted) for (x, orig), (_, extracted) in zip(data, signal)]
+    with multiprocessing.Pool() as pool:
+        data = sorted(data, key=lambda p: p[0])
+        hilbert_data = _debug_cache('cache-hilbert.pickle', data, lambda: hilbert(data, pool=pool))
+        phase = _analytical_phase(data, hilbert_data)
+        amp = _analytical_magnitude(data, hilbert_data)
+        freq = [
+            (p0[0], (p1[1] - p0[1]) / (p1[0] - p0[0]))
+            for p0, p1 in zip(phase, phase[1:])
+        ]
+        extracted_freq = _low_pass(freq, pool=pool)
+        in_phase_proj = []
+        hb_phase_proj = []
+        integral = 0
+        for i in range(len(freq) - 1):
+            x = freq[i][0]
+            x_next = freq[i + 1][0]
+            freq_all = freq[i][1]
+            freq_all_next = freq[i + 1][1]
+            amp_all = amp[i][1]
+            phase_all = phase[i][1]
+            freq_ref = extracted_freq[i][1]
+            freq_ref_next = extracted_freq[i + 1][1]
+            in_phase_proj.append(
+                (x, 0.5 * amp_all * (math.cos(phase_all) + math.cos(integral + phase_all)))
+            )
+            hb_phase_proj.append(
+                (x, 0.5 * amp_all * (math.sin(phase_all) - math.sin(integral + phase_all)))
+            )
+            # trapezoid rule:
+            integral += (x_next - x) * (freq_all_next + freq_ref_next + freq_all + freq_ref) * 0.5
+        in_phase_proj = _low_pass(in_phase_proj, pool=pool)
+        hb_phase_proj = _low_pass(hb_phase_proj, pool=pool)
+        extracted_amp = [(x, 2 * a) for x, a in _analytical_magnitude(in_phase_proj, hb_phase_proj)]
+        extracted_phase = _analytical_phase(in_phase_proj, hb_phase_proj)
+        signal = [(x, a * math.cos(p)) for (x, a), (_, p) in zip(extracted_amp, extracted_phase)]
+        return signal, [(x, orig - extracted) for (x, orig), (_, extracted) in zip(data, signal)]
+
+def _parallelize(data, func, pool):
+    args = [(i, data) for i in range(len(data))]
+    if pool != None:
+        return pool.starmap(func, args)
+    else:
+        return [func(*arg) for arg in args]
 
 def _integrate(data):
     integral = 0
@@ -64,8 +74,12 @@ def _sinc_filter(x):
     else:
         return math.sin(2 * _LOW_PASS_CUTOFF * math.pi * x) / (math.pi * x)
 
-def _low_pass(data):
-    return [(t, _integrate([(x, y * _sinc_filter(t - x)) for x, y in data])) for (t, _) in data]
+def _low_pass(data, pool=None):
+    return _parallelize(data, _low_pass_kernel, pool)
+
+def _low_pass_kernel(i, data):
+    t = data[i][0]
+    return (t, _integrate([(x, y * _sinc_filter(t - x)) for x, y in data]))
 
 def _analytical_phase(real, imag):
     return [(x, math.atan2(i, r)) for (x, r), (_, i) in zip(real, imag)]
@@ -98,7 +112,7 @@ def _test_data_gen_func(x):
 
 def _test_data_gen():
     size = 2048
-    fac = 1
+    fac = 0.5
     return [
         (x * fac, _test_data_gen_func(x * fac))
         for x in range(int(size / fac))
@@ -107,9 +121,10 @@ def _test_data_gen():
 def _run_cli():
     data = _test_data_gen()
     #print_points(data)
-    print_points(hilbert_decomp(data)[0])
-    #print_points(_low_pass(data))
-    #print_points(hilbert(hilbert(data)))
+    #print_points(hilbert_decomp(data)[0])
+    #with multiprocessing.Pool() as pool:
+    #    print_points(_low_pass(data, pool=pool))
+    print_points(hilbert(hilbert(data)))
 
 if __name__ == '__main__':
     _run_cli()
