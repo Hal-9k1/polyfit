@@ -22,16 +22,13 @@ def hilbert_decomp(data):
     with multiprocessing.Pool() as pool:
         data = sorted(data, key=lambda p: p[0])
         hilbert_data = _debug_cache('cache-hilbert.pickle', data, lambda: hilbert(data, pool=pool))
-        return hilbert_data, []
         phase = _analytical_phase(data, hilbert_data)
-        return phase, []
         amp = _analytical_magnitude(data, hilbert_data)
         freq = [
-            (p0[0], (p1[1] - p0[1]) / (p1[0] - p0[0]))
+            (p0[0], (p1[1] - p0[1]) / (p1[0] - p0[0]) % (2 * math.pi))
             for p0, p1 in zip(phase, phase[1:])
         ]
         extracted_freq = _low_pass(freq, pool=pool)
-        return extracted_freq, []
         in_phase_proj = []
         hb_phase_proj = []
         integral = 0
@@ -101,16 +98,15 @@ def _sinc_filter(x):
 def _low_pass(data, pool=None):
     return _parallelize(data, _low_pass_kernel, pool)
 
-def _sync(input_subset, data):
-    inputs = set((p[0] for p in input_subset))
-    return [p for p in data if p[0] in inputs]
-
 def _low_pass_kernel(i, data):
     t = data[i][0]
     return (t, _integrate([(x, y * _sinc_filter(t - x)) for x, y in data]))
 
+def _pos_atan2(y, x):
+    return math.atan2(y, x) + (2 * math.pi if y < 0 else 0)
+
 def _analytical_phase(real, imag):
-    return [(x, math.atan(i / r)) for (x, r), (_, i) in zip(real, imag)]
+    return [(x, _pos_atan2(i, r)) for (x, r), (_, i) in zip(real, imag)]
 
 def _analytical_magnitude(real, imag):
     return [(x, pow(r * r + i * i, 0.5)) for (x, r), (_, i) in zip(real, imag)]
