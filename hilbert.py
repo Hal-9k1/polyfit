@@ -3,7 +3,7 @@ import math
 
 _SINC_EPSILON = pow(10, -8)
 _HILBERT_EPSILON = pow(10, -8)
-_LOW_PASS_CUTOFF = 0.05
+_LOW_PASS_CUTOFF = 0.02
 
 def hilbert(data):
     return [
@@ -94,20 +94,14 @@ def _sel(l, i):
     return [p[i] for p in l]
 
 def _test_data_gen_func(x):
-    freq = math.pi * (x + 99) / 800
-    amp = 1
-    rider_amp = 0.25
-    rider_freq = 20 * math.sin(27 * x)
-
-    signal = amp * math.sin(freq * x)
-    rider = rider_amp * math.sin(rider_freq * x)
-    return signal + rider
+    return (1 + 0.003*x) * math.copysign(1, math.sin((0.02 + 0.00003*x)*x))
 
 def _test_data_gen():
-    fac = 0.5
+    size = 2048
+    fac = 1
     return [
         (x * fac, _test_data_gen_func(x * fac))
-        for x in range(int(1000 / fac))
+        for x in range(int(size / fac))
     ]
 
 def _run_cli():
