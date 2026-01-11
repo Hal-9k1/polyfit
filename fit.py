@@ -1,4 +1,9 @@
-'''Fits a polynomial curve to a 2D data set.
+'''Polynomial fitting and evaluation routines.
+
+When run, supports a CLI to fit a polynomial to input points using least-squares.
+'''
+
+_CLI_DOC = '''Fits a polynomial curve to a 2D data set.
 
 Uses matrix operations to find the least squares fit. Coefficients of the fitted
 curve are printed to standard output, highest degree first.
@@ -26,7 +31,20 @@ import random
 import sys
 from cli_util import panic, parse_args, read_points_from_csv, pos_int, pos_float, print_reals
 
-def fit(degree, data, *, matrix_check=True):
+def fit(degree, data):
+    '''Fits a polynomial to a list of points.
+
+    Returns the list of coefficients for the least squares fit polynomial of the
+    specified degree to the given data. The coefficient list is ordered least
+    degree first.
+
+    Args:
+        degree: The degree of the polynomial to fit.
+        data: The list of points (2-tuples of floats) to fit the polynomial to.
+
+    Returns:
+        The list of coefficients of the least-squares fit polynomial.
+    '''
     mat = _Mat(
         degree + 1,
         len(data),
@@ -37,14 +55,28 @@ def fit(degree, data, *, matrix_check=True):
     # where each row in x are the ascending powers of a data point's independent variable
     # and each row in y is the corresponding dependent variable
     return (
-        (mat_t * mat).invert(check=matrix_check)
+        (mat_t * mat).invert()
         * mat_t * _Mat.colvec([point[1] for point in data])
     ).as_colvec()
 
 def poly_eval(coeffs, x):
+    '''Evaluates a polynomial at a given input.
+
+    Evaluates the polynomial specified by the list of coefficients given in
+    ascending degree at the given input value.
+
+    Args:
+        coeffs: The coefficients of the polynomial to evaluate.
+        x: The input to evaluate the polynomial at.
+
+    Returns:
+        The result of the evaluation.
+    '''
+
     return sum(k * pow(x, n) for n, k in enumerate(coeffs))
 
 class _Mat:
+    '''Represents an arbitrarily sized matrix.'''
     _EPSILON = pow(10, -5)
 
     def __init__(self, width, height, data=None):
@@ -55,12 +87,22 @@ class _Mat:
         self._height = height
 
     def identity(dim):
+        '''Returns a dim*dim identity matrix.
+
+        Args:
+            dim: The dimension of the returned matrix.
+        '''
         data = [0] * (dim * dim)
         for i in range(dim):
             data[i * (dim + 1)] = 1
         return _Mat(dim, dim, data)
 
     def colvec(data):
+        '''Returns a single column matrix populated with data from a list.
+
+        Args:
+            data: The list of numbers to populate the matrix with.
+        '''
         return _Mat(1, len(data), data)
 
     def transpose(self):
@@ -70,15 +112,20 @@ class _Mat:
                 data[x * self._height + y] = self._data[y * self._width + x]
         return _Mat(self._height, self._width, data)
 
-    def invert(self, *, check=True):
+    def invert(self):
+        '''Returns a new matrix which is the inverse of this one.
+
+        If this matrix is singular, the return value is undefined.
+        '''
         ident = _Mat.identity(self._height)
         solved = self.augment(ident).rref()
         left = solved._select_cols(0, self._width)
-        if left != ident and check:
-            raise ValueError('Matrix is not invertible; expected identity:\n' + str(left))
+        #if left != ident and check:
+        #    raise ValueError('Matrix is not invertible; expected identity:\n' + str(left))
         return solved._select_cols(self._width, solved._width)
 
     def rref(self):
+        '''Returns a new matrix which is the row reduced echelon form of this one.'''
         rows = [self._get_row(y) for y in range(self._height)]
         #print(self, file=sys.stderr)
         for y in range(self._height + 1): # sort one more time after processing all rows
@@ -116,6 +163,15 @@ class _Mat:
         return _Mat(self._width, self._height, sum(rows, start=[]))
 
     def augment(self, other):
+        '''Returns a new matrix whose rows are the concatenation of this and
+        another matrices' rows.
+
+        Args:
+            other: The matrix to right-augment this matrix with.
+
+        Raises:
+            ValueError: The two matrices' do not have the same number of rows.
+        '''
         if self._height != other._height:
             raise ValueError('Invalid matrix augment')
         data = []
@@ -125,6 +181,11 @@ class _Mat:
         return _Mat(self._width + other._width, self._height, data)
 
     def as_colvec(self):
+        '''Checks that this matrix is a column vector and returns the contents.
+
+        Raises:
+            ValueError: This matrix is not a column vector.
+        '''
         if self._width != 1:
             raise ValueError('_Matrix is not a column vector')
         return self._data
@@ -191,7 +252,7 @@ def _run_cli():
     filename = positional[0] if len(positional) else None
 
     if 'help' in named:
-        print(__doc__, file=sys.stderr)
+        print(_CLI_DOC, file=sys.stderr)
         exit(0)
 
     if degree == None:

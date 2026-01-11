@@ -1,25 +1,70 @@
 from cli_util import print_points
+from contextlib import nullcontext
 import math
 import multiprocessing
 
+# inputs less than this distance from 0 return the maximum value of the sinc
+# function:
 _SINC_EPSILON = pow(10, -12)
+# points less than this distance from 0 are skipped when integrating for
+# hilbert transformation:
 _HILBERT_EPSILON = pow(10, -12)
 _LOW_PASS_CUTOFF = 0.02
 _TRAPEZOID_THRESHOLD = 0.0001
 
 def hilbert(data, pool=None):
+    '''Computes the Hilbert transform.
+
+    Computes the Hilbert transform of a function given as a list of points, and
+    returns the transformed points.
+
+    Args:
+        data: The list of points (2-tuples of floats) to transform.
+        pool: If not None, the multiprocessing.Pool to parallelize the
+            computation with.
+
+    Returns:
+        The list of transformed points, sorted by first element but otherwise
+        corresponding 1-to-1 with the input points.
+    '''
     return _parallelize(sorted(data, key=lambda p: p[0]), _hilbert_kernel, pool)
 
 def _hilbert_kernel(i, data):
+    '''Evaluates and returns the Hilbert transform of a function at one point.
+
+    Args:
+        i: The datum index.
+        data: The list of points.
+    '''
+    # Hilbert[x(t)] = principal value integral from -oo to oo of x(t)/(t - x) dt
     t = data[i][0]
     return (t, _integrate([
         (x, y / (t - x))
         for x, y in data
-        if abs(t - x) > _HILBERT_EPSILON
+        if abs(t - x) > _HILBERT_EPSILON # principal value rule
     ]) / math.pi)
 
-def hilbert_decomp(data):
-    with multiprocessing.Pool() as pool:
+def hilbert_decomp(data, parallel=True):
+    '''Extracts the "highest energy" oscillating component of a function using HVD.
+
+    Uses Hilbert Vibration Decomposition (HVD) to extract the component of a
+    function, given by a list of points, with a slowly-varying instantaneous
+    frequency and amplitude. Some points may be lost during this process.
+
+    Args:
+        data: A list of points (2-tuples of floats) representing the function to
+            decompose.
+        parallel: Whether to parallelize the computation using all available
+            virtual processors. Defaults to True.
+
+    Returns:
+        A tuple. The first element is a list of points on the extracted function
+        at most of the same inputs as the given list. The second element is the
+        residual component-- points representing differences between the
+        extracted function and the given points at corresponding inputs.
+        Returned lists are sorted by each point's first element.
+    '''
+    with multiprocessing.Pool() if parallel else nullcontext() as pool:
         data = sorted(data, key=lambda p: p[0])
         hilbert_data = _debug_cache('cache-hilbert.pickle', data, lambda: hilbert(data, pool=pool))
         phase = _analytical_phase(data, hilbert_data)
@@ -64,10 +109,6 @@ def _parallelize(data, func, pool):
         return [func(*arg) for arg in args]
 
 def _integrate(data):
-    #integral = 0
-    #for p0, p1 in zip(data, data[1:]):
-    #    integral += (p1[0] - p0[0]) * (p1[1] + p0[1])
-    #return integral * 0.5
     integral = 0
     l = len(data)
     use_trapezoid = True

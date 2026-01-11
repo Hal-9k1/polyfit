@@ -159,8 +159,7 @@ def raman_process(data):
     #    data,
     #    SAVITZKY_GOLAY_WINDOW,
     #    1,
-    #    end_mode='clip',
-    #    matrix_check=False
+    #    end_mode='clip'
     #)
     # drop (don't clamp) out-of-bounds intensities produced by smoothing
     # algorithm, which appear as crazy outliers on a graph
@@ -172,7 +171,7 @@ def raman_process(data):
 
     data, high_energy = hilbert_decomp(data)
     return data, []
-    coeffs = fit(4, data, matrix_check=False)
+    coeffs = fit(4, data)
     data = [
         (wavenumber_shift, intensity - poly_eval(coeffs, wavenumber_shift))
         for wavenumber_shift, intensity in data
