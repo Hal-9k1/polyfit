@@ -1,5 +1,26 @@
 '''Analyzes Raman data.
 
+When run, supports a CLI to run raw Spectrum Studio CSV data (intensity by
+wavelength, including metadata) through the Raman analysis pipeline, producing
+denoised Raman spectra (intensity by wavenumber shift from incident light).
+'''
+
+from fit import fit, poly_eval
+from smooth import smooth
+from cli_util import (
+    panic,
+    parse_args,
+    read_points_from_csv,
+    pos_int,
+    pos_float,
+    print_points,
+    print_reals
+)
+from hilbert import hilbert_decomp
+import sys
+
+_CLI_DOC = '''Analyzes Raman data.
+
 Given Spectrum Studio CSV data, outputs a two-column Raman spectrum CSV.
 - Converts wavelengths to wavenumber Stokes shifts (wavenumber/energy DECREASING,
   wavelength INCREASING) from the incident laser wavelength.
@@ -40,21 +61,6 @@ Exit code:
     0 on success, 1 on any argument parsing or data error.
 '''
 
-import sys
-
-from fit import fit, poly_eval
-from smooth import smooth
-from cli_util import (
-    panic,
-    parse_args,
-    read_points_from_csv,
-    pos_int,
-    pos_float,
-    print_points,
-    print_reals
-)
-from hilbert import hilbert_decomp
-
 NM_PER_CM = 10**7
 INCIDENT_NM = 532
 MIN_WAVELENGTH_INCREASE_NM = 8
@@ -66,6 +72,20 @@ PEAK_DETECTION_WINDOW_WIDTH = 100
 MAX_INLIER_INTENSITY = 600
 
 def parse_spectrometer_csv(file):
+    '''Parses raw Spectrum Studio CSV data into a list of points.
+
+    Reads a file containing raw Spectrum Studio output, discards the header, and
+    extracts a list of (wavelength, intensity) tuples.
+
+    Args:
+        file: The open file containing Spectrum Studio data to read.
+
+    Returns:
+        A list of (wavelength, intensity) points.
+
+    Raises:
+        ValueError: The read data is invalid.
+    '''
     for _ in range(5):
         if not file.readline():
             raise ValueError('Header missing or incomplete')
@@ -84,14 +104,20 @@ def parse_spectrometer_csv(file):
     file.close()
     return points
 
-def _stddev(data):
-    # sqrt of mean of squares of devs from mean
-    l = len(data)
-    mean = sum(data) / l
-    sum_sqdev = sum(pow(x - mean, 2) for x in data)
-    return pow(sum_sqdev / l, 0.5)
-
 def detect_peaks_hilbert(data, noise):
+    '''Uses HVD output to detect Raman characteristic peaks.
+
+    Uses the technique described by Zhao et. al. (see README) to determine
+    wavenumber shifts with characteristic peaks using standard deviation of the
+    separated noise.
+
+    Args:
+        data: The first extracted component by HVD.
+        noise: The residual component after HVD.
+
+    Returns:
+        A list of detected peaks locations.
+    '''
     data = sorted(data, key=lambda p: p[0])
     noise_stddev = _stddev([p[0] for p in noise])
     extrema = []
@@ -111,10 +137,22 @@ def detect_peaks_hilbert(data, noise):
     return peaks
 
 def detect_peaks(data):
+    '''Detects Raman characteristic peaks with a homebrewed algorithm.
+
+    Detects peaks at wavenumber shifts with higher intensity than both
+    neighboring points (the "short check") and with higher intensity than more
+    distant points (the "long check").
+
+    Args:
+        data: A list of points (tuples of (wavenumber_shift, intensity))
+            describing the Raman spectrum.
+
+    Returns:
+        A list of detected peaks locations.
+    '''
     window = []
     peaks = []
     for point in sorted(data, key=lambda p: p[0]):
-        wavenumber_shift, intensity = point
         window.append(point)
         if len(window) < 3:
             continue
@@ -135,6 +173,20 @@ def detect_peaks(data):
     return peaks
 
 def raman_process(data):
+    '''Runs data through the Raman analysis pipeline.
+
+    Produces a Raman spectrum from spectrometer data.
+
+    Args:
+        data: A list of (wavelength, intensity) tuples. Some points may be
+            lost during processing.
+
+    Returns:
+        A tuple. The first element is a list of (wavenumber_shift, denoised_intensity)
+        tuples representing the Raman spectrum. The second element is a list of
+        wavenumber shifts given as floats where the intensity was detected to
+        have peaked.
+    '''
     # filter out intensities that haven't shifted much from incident because
     # those overpower the raman spectrum
     data = [
@@ -180,7 +232,35 @@ def raman_process(data):
     #peaks = detect_peaks(data)
     return data, peaks
 
+def _stddev(data):
+    '''Calculates the standard deviation of a list of numbers.
+
+    The standard deviation is the square root of the mean of the squares of the
+    deviations of each point from the mean.
+
+    Args:
+        data: 
+
+    Returns:
+        The standard deviation.
+    '''
+    l = len(data)
+    mean = sum(data) / l
+    sum_sqdev = sum(pow(x - mean, 2) for x in data)
+    return pow(sum_sqdev / l, 0.5)
+
 def _typecheck_stdout(v):
+    '''A parser function for the --stdout option in the raman.py CLI.
+
+    Args:
+        s: The string to parse.
+
+    Returns:
+        The input string if it is 'spectrum' or 'peaks'.
+
+    Raises:
+        ValueError: The string is not any of the valid values for the --stdout option.
+    '''
     v = v.lower()
     if v not in ('spectrum', 'peaks'):
         raise ValueError
@@ -201,7 +281,7 @@ def _run_cli():
     stdout_content = named.get('stdout')
 
     if 'help' in named:
-        print(__doc__, file=sys.stderr)
+        print(_CLI_DOC, file=sys.stderr)
         exit(0)
 
     if len(positional) > 1:

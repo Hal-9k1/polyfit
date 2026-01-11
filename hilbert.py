@@ -30,13 +30,14 @@ def hilbert(data, pool=None):
     return _parallelize(sorted(data, key=lambda p: p[0]), _hilbert_kernel, pool)
 
 def _hilbert_kernel(i, data):
-    '''Evaluates and returns the Hilbert transform of a function at one point.
+    '''Evaluates and returns the Hilbert transform of a function at a point.
+
+    Hilbert[x(t)] = principal value integral from -oo to oo of x(t)/(t - x) dt
 
     Args:
         i: The datum index.
         data: The list of points.
     '''
-    # Hilbert[x(t)] = principal value integral from -oo to oo of x(t)/(t - x) dt
     t = data[i][0]
     return (t, _integrate([
         (x, y / (t - x))
@@ -66,11 +67,11 @@ def hilbert_decomp(data, parallel=True):
     '''
     with multiprocessing.Pool() if parallel else nullcontext() as pool:
         data = sorted(data, key=lambda p: p[0])
-        hilbert_data = _debug_cache('cache-hilbert.pickle', data, lambda: hilbert(data, pool=pool))
+        hilbert_data = hilbert(data, pool=pool)
         phase = _analytical_phase(data, hilbert_data)
         amp = _analytical_magnitude(data, hilbert_data)
         freq = [
-            (p0[0], (p1[1] - p0[1]) / (p1[0] - p0[0]) % (2 * math.pi))
+            (p0[0], (p1[1] - p0[1]) % (2 * math.pi)) / (p1[0] - p0[0])
             for p0, p1 in zip(phase, phase[1:])
         ]
         extracted_freq = _low_pass(freq, pool=pool)
@@ -102,6 +103,22 @@ def hilbert_decomp(data, parallel=True):
         return signal, [(x, orig - extracted) for (x, orig), (_, extracted) in zip(data, signal)]
 
 def _parallelize(data, func, pool):
+    '''Applies a kernel function to every element of a list.
+
+    Transforms every element of a list with a kernel function, which takes an
+    index into the list and the list itself. If given a multiprocessing.Pool,
+    uses it to parallelize the operation.
+
+    Args:
+        data: The list to apply the kernel to.
+        func: The kernel function, taking an integer index into data and data
+            itself.
+        pool: If not None, used to parallelize the mapping operation in multiple
+            subprocesses.
+
+    Returns:
+        The mapped list.
+    '''
     args = [(i, data) for i in range(len(data))]
     if pool != None:
         return pool.starmap(func, args)
@@ -109,12 +126,25 @@ def _parallelize(data, func, pool):
         return [func(*arg) for arg in args]
 
 def _integrate(data):
+    '''Integrates a signal.
+
+    Integrates a function specified by a list of points from negative to
+    positive infinity, assuming all values outside the specified range are 0.
+    Simpson's rule is used unless the second of a triplet of points is too far
+    from the mean input, in which case the trapezoid rule is used.
+
+    Args:
+        data: The list of points representing the function to be integrated.
+    
+    Returns:
+        The value of the improper definite integral.
+    '''
     integral = 0
     l = len(data)
     use_trapezoid = True
     for i in range(l - 1):
         if not use_trapezoid:
-            # skip one iteration after using simpson's rule
+            # skip the middle point after using simpson's rule
             use_trapezoid = True
             continue
         use_trapezoid = i + 2 >= l
@@ -130,49 +160,90 @@ def _integrate(data):
             integral += (p2[0] - p1[0]) / 6 * (p0[1] + 4 * p1[1] + p2[1])
     return integral
 
+def _low_pass(data, pool=None):
+    '''Convolves a signal with the sinc filter function to achieve a low pass
+    filtering.
+
+    Args:
+        data: The list of points representing the signal to filter.
+        pool: If not None, used to parallelize the operation.
+
+    Returns:
+        The input points transformed by the low pass filter.
+    '''
+    return _parallelize(data, _low_pass_kernel, pool)
+
+def _low_pass_kernel(i, data):
+    '''Evaluates and returns the low pass filtered version of a function at a point.
+
+    Args:
+        i: The datum index.
+        data: The list of points.
+    '''
+    t = data[i][0]
+    return (t, _integrate([(x, y * _sinc_filter(t - x)) for x, y in data]))
+
 def _sinc_filter(x):
+    '''Evaluates and returns the sinc filter function.
+
+    Args:
+        x: The input to the sinc filter function.
+    '''
     if abs(x) < _SINC_EPSILON:
         return 2 * _LOW_PASS_CUTOFF
     else:
         return math.sin(2 * _LOW_PASS_CUTOFF * math.pi * x) / (math.pi * x)
 
-def _low_pass(data, pool=None):
-    return _parallelize(data, _low_pass_kernel, pool)
-
-def _low_pass_kernel(i, data):
-    t = data[i][0]
-    return (t, _integrate([(x, y * _sinc_filter(t - x)) for x, y in data]))
-
 def _pos_atan2(y, x):
+    '''Returns math.atan2(y, x) in the range [0, 2pi] instead of [-pi, pi].'''
     return math.atan2(y, x) + (2 * math.pi if y < 0 else 0)
 
 def _analytical_phase(real, imag):
+    '''Computes the instantaneous phase of an analytical signal.
+
+    Computes the instantaneous phase of the rotation of an analytical signal.
+    The analytical signal is given as two list of points, the first being the
+    real component of the signal and the second being the imaginary component
+    (which is the Hilbert transform of the real component). If any points at
+    corresponding positions in the real and imaginary signals don't have the
+    same input value, the output is undefined.
+
+    Args:
+        real: A list of points (2-tuples of floats) describing the real
+            component of the analytical signal.
+        imag: A list of points (2-tuples of floats) describing the imaginary
+            component of the analytical signal.
+
+    Returns:
+        A list of points describing the analytical signal's phase at
+        corresponding inputs in the given lists.
+    '''
     return [(x, _pos_atan2(i, r)) for (x, r), (_, i) in zip(real, imag)]
 
 def _analytical_magnitude(real, imag):
-    return [(x, pow(r * r + i * i, 0.5)) for (x, r), (_, i) in zip(real, imag)]
+    '''Computes the instantaneous magnitude of an analytical signal.
 
-def _debug_cache(fn, deps, gen):
-    import pickle
-    try:
-        f = open(fn, 'rb')
-        stored_deps, stored_data = pickle.load(f)
-        f.close()
-    except:
-        stored_deps = object()
-    if deps == stored_deps:
-        return stored_data
-    else:
-        data = gen()
-        f = open(fn, 'wb')
-        pickle.dump((deps, data), f)
-        f.close()
-        return data
+    Computes the instantaneous magnitude of an analytical signal.
+    The analytical signal is given as two list of points, the first being the
+    real component of the signal and the second being the imaginary component
+    (which is the Hilbert transform of the real component). If any points at
+    corresponding positions in the real and imaginary signals don't have the
+    same input value, the output is undefined.
 
-def _sel(l, i):
-    return [p[i] for p in l]
+    Args:
+        real: A list of points (2-tuples of floats) describing the real
+            component of the analytical signal.
+        imag: A list of points (2-tuples of floats) describing the imaginary
+            component of the analytical signal.
+
+    Returns:
+        A list of points describing the analytical signal's magnitude at
+        corresponding inputs in the given lists.
+    '''
+    return [(x, math.hypot(r, i)) for (x, r), (_, i) in zip(real, imag)]
 
 def _test_data_gen_func(x):
+    '''Evaluates and returns the nonstationary square wave at the given input.'''
     return (1 + 0.003*x) * math.copysign(1, math.sin((0.02 + 0.00003*x)*x))
 
 def _test_data_gen():

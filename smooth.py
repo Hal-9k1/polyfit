@@ -1,4 +1,17 @@
-'''Applies Savitzsky-Golay smoothing to a 2D dataset.
+'''Savitzky-Golay smoothing.
+
+When run, supports a CLI to smooth input points.
+'''
+
+import multiprocessing
+import os
+import random
+import sys
+import traceback
+from fit import fit, poly_eval
+from cli_util import panic, parse_args, pos_int, read_points_from_csv, print_points
+
+_CLI_DOC = '''Applies Savitzsky-Golay smoothing to a 2D dataset.
 
 Outputs a copy of the input data with the middle section (half the window length
 inwards on either side) smoothed.
@@ -46,18 +59,35 @@ Exit code:
     0 on success, 1 on any argument parsing or data error.
 '''
 
-import multiprocessing
-import os
-import random
-import sys
-import traceback
-from fit import fit, poly_eval
-from cli_util import panic, parse_args, pos_int, read_points_from_csv, print_points
-
 DEFAULT_MAX_PROCESSES = 1
 DEFAULT_END_MODE = 'clip'
 
 def smooth(degree, data, window, smooth_procs, *, end_mode=DEFAULT_END_MODE):
+    '''Returns the given list of points smoothed by the Savitzky-Golay method.
+
+    Applies Savitzky-Golay smoothing to a list of points (2-tuples of floats).
+    Each value is replaced by a predicted value according to a polynomial
+    regression on a window of surrounding points.
+
+    Args:
+        degree: The degree of polynomial to use for regression.
+        data: The list of points to smooth.
+        window: The size of the window around each point on which to run the
+            regression.
+        smooth_procs: The number of subprocesses that should be used to
+            parallelize the computation.
+        end_mode: Determines what to do with points less than half the window
+            size away from either boundary of the data. If specified, must be
+            one of 'clip', 'extend', or 'preserve'.
+             -> clip: do not include the end data points in the output at all.
+             -> extend: use the polynomial fitting from the nearest data point with
+                    a full window to smooth end data points.
+             -> preserve: output end data points exactly as they appear in input.
+            If omitted, defaults to 'clip'.
+
+    Returns:
+        The smoothed list of points, sorted by their first elements.
+    '''
     if smooth_procs < 1:
         smooth_procs = _guess_cpu_count()
 
@@ -68,7 +98,7 @@ def smooth(degree, data, window, smooth_procs, *, end_mode=DEFAULT_END_MODE):
     if smoothable_end <= smoothable_start:
         raise ValueError('Window too large for data length')
     labeled_window_slices = [
-        (data[i][0], data[(i - half_window):(i + half_window)])
+        (data[i][0], data[(i - half_window):i] + data[(i + 1):(i + half_window)])
         for i in range(smoothable_start, smoothable_end)
     ]
     batch_params = [
@@ -127,6 +157,17 @@ def _guess_cpu_count():
     return 1
 
 def _typecheck_end_mode(v):
+    '''A parser function for the --ends option in the smooth.py CLI.
+
+    Args:
+        s: The string to parse.
+
+    Returns:
+        The input string if it is 'clip', 'extend', or 'preserve'.
+
+    Raises:
+        ValueError: The string is not any of the valid values for the --ends option.
+    '''
     v = v.lower()
     if v not in ('clip', 'extend', 'preserve'):
         raise ValueError
@@ -152,7 +193,7 @@ def _run_cli():
     show_traceback = 'traceback' in named
 
     if 'help' in named:
-        print(__doc__, file=sys.stderr)
+        print(_CLI_DOC, file=sys.stderr)
         exit(0)
 
     if degree == None:
