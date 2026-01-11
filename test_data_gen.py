@@ -2,21 +2,13 @@ from fit import poly_eval
 from cli_util import parse_args, print_points
 import random
 
+seed = 42
+coeffs = (200, -39375, -425, 55, 1)
+noise_size = 150000
+step_size = 3/16/2
+data_length = 400
+
 def main():
-    seed = 42
-    coeffs = (200, -39375, -425, 55, 1)
-    noise_size = 150000
-    step_size = 3/16/2
-    data_length = 400
-
-    named, positional = parse_args({
-        'info': None,
-    })
-    if 'info' in named:
-        print(f'Coefficients (0th degree first): {coeffs}\nNoise size: {noise_size}\n'
-            + f'Step size: {step_size}\nData length: {data_length}')
-        return
-
     random.seed(seed)
     points = []
     for i in range(data_length):
