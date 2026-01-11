@@ -9,4 +9,3 @@ We're currently experimenting with the pipeline, and not everything implemented 
 - Savitzky-Golay smoothing
 - Peak detection and feature extraction via Hilbert Vibration Decomposition
     - Zhao, X.Y.; Liu, G.Y.; Sui, Y.T.; Xu, M.; Tong, L. Denoising method for Raman spectra with low signal-to-noise ratio based on feature extraction. *Spectrochimica Acta Part A* 2020, *250*, 119374. DOI: [10.1016/j.saa.2020.119374](https://doi.org/10.1016/j.saa.2020.119374)
-- Peak detection
