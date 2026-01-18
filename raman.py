@@ -5,6 +5,8 @@ wavelength, including metadata) through the Raman analysis pipeline, producing
 denoised Raman spectra (intensity by wavenumber shift from incident light).
 '''
 
+import fit, smooth, cli_util, hilbert
+
 from fit import fit, poly_eval
 from smooth import smooth
 from cli_util import (
@@ -199,11 +201,16 @@ def raman_process(data):
         (NM_PER_CM / INCIDENT_NM - NM_PER_CM / wavelength, intensity)
         for wavelength, intensity in data
     ]
-    # clamp intensities to minimum 0
-    #data = [
-    #    (wavenumber_shift, max(0, intensity))
-    #    for wavenumber_shift, intensity in data
-    #]
+    coeffs = fit(4, data)
+    data = [
+        (wavenumber_shift, intensity - poly_eval(coeffs, wavenumber_shift))
+        for wavenumber_shift, intensity in data
+    ]
+    data = [
+        (wavenumber_shift, max(0, intensity))
+        for wavenumber_shift, intensity in data
+    ]
+    return data, []
     # apply savitzky-golay smoothing, discarding boundaries of data that can't
     # have full windows
     #data = smooth(

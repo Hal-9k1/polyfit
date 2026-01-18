@@ -9,7 +9,8 @@ _SINC_EPSILON = pow(10, -12)
 # points less than this distance from 0 are skipped when integrating for
 # hilbert transformation:
 _HILBERT_EPSILON = pow(10, -12)
-_LOW_PASS_CUTOFF = 0.02
+_ORIG_IF_LOW_PASS_CUTOFF = 0.02
+_PROJ_LOW_PASS_CUTOFF = 0.02
 _TRAPEZOID_THRESHOLD = 0.0001
 
 def hilbert(data, pool=None):
@@ -27,7 +28,7 @@ def hilbert(data, pool=None):
         The list of transformed points, sorted by first element but otherwise
         corresponding 1-to-1 with the input points.
     '''
-    return _parallelize(sorted(data, key=lambda p: p[0]), _hilbert_kernel, pool)
+    return _parallelize(len(data), (sorted(data, key=lambda p: p[0]),), _hilbert_kernel, pool)
 
 def _hilbert_kernel(i, data):
     '''Evaluates and returns the Hilbert transform of a function at a point.
@@ -71,10 +72,10 @@ def hilbert_decomp(data, parallel=True):
         phase = _analytical_phase(data, hilbert_data)
         amp = _analytical_magnitude(data, hilbert_data)
         freq = [
-            (p0[0], (p1[1] - p0[1]) % (2 * math.pi)) / (p1[0] - p0[0])
+            (p0[0], (p1[1] - p0[1]) % (2 * math.pi) / (p1[0] - p0[0]))
             for p0, p1 in zip(phase, phase[1:])
         ]
-        extracted_freq = _low_pass(freq, pool=pool)
+        extracted_freq = _low_pass(freq, _ORIG_IF_LOW_PASS_CUTOFF, pool=pool)
         in_phase_proj = []
         hb_phase_proj = []
         integral = 0
@@ -95,31 +96,46 @@ def hilbert_decomp(data, parallel=True):
             )
             # trapezoid rule:
             integral += (x_next - x) * (freq_all_next + freq_ref_next + freq_all + freq_ref) * 0.5
-        in_phase_proj = _low_pass(in_phase_proj, pool=pool)
-        hb_phase_proj = _low_pass(hb_phase_proj, pool=pool)
+        _write_points('realproj', in_phase_proj)
+        _write_points('imagproj', hb_phase_proj)
+        in_phase_proj = _low_pass(in_phase_proj, _PROJ_LOW_PASS_CUTOFF, pool=pool)
+        hb_phase_proj = _low_pass(hb_phase_proj, _PROJ_LOW_PASS_CUTOFF, pool=pool)
         extracted_amp = [(x, 2 * a) for x, a in _analytical_magnitude(in_phase_proj, hb_phase_proj)]
         extracted_phase = _analytical_phase(in_phase_proj, hb_phase_proj)
         signal = [(x, a * math.cos(p)) for (x, a), (_, p) in zip(extracted_amp, extracted_phase)]
+        _write_points('raw', data)
+        _write_points('hilbert', hilbert_data)
+        _write_points('origip', phase)
+        _write_points('origia', amp)
+        _write_points('origif', freq)
+        _write_points('extrif', extracted_freq)
+        _write_points('lprealproj', in_phase_proj)
+        _write_points('lpimagproj', hb_phase_proj)
+        _write_points('extria', extracted_amp)
+        _write_points('extrip', extracted_phase)
+        _write_points('final', signal)
         return signal, [(x, orig - extracted) for (x, orig), (_, extracted) in zip(data, signal)]
 
-def _parallelize(data, func, pool):
-    '''Applies a kernel function to every element of a list.
+def _parallelize(count, uniforms, func, pool):
+    '''Runs a kernel function a given number of times, optionally in perallel.
 
-    Transforms every element of a list with a kernel function, which takes an
-    index into the list and the list itself. If given a multiprocessing.Pool,
-    uses it to parallelize the operation.
+    Runs a kernel function [count] times, passing the job number and the given
+    list of uniforms to each invocation.  If given a multiprocessing.Pool, uses
+    it to parallelize the operation.
 
     Args:
-        data: The list to apply the kernel to.
-        func: The kernel function, taking an integer index into data and data
-            itself.
+        count: The number of jobs to run.
+        uniforms: The parameters to pass to each kernel invocation after the
+            job number.
+        func: The kernel function, taking an integer job number and the
+            unpacked iterable of uniforms.
         pool: If not None, used to parallelize the mapping operation in multiple
             subprocesses.
 
     Returns:
-        The mapped list.
+        A list containing the return values of every invocation in order.
     '''
-    args = [(i, data) for i in range(len(data))]
+    args = [(i, *uniforms) for i in range(count)]
     if pool != None:
         return pool.starmap(func, args)
     else:
@@ -160,20 +176,21 @@ def _integrate(data):
             integral += (p2[0] - p1[0]) / 6 * (p0[1] + 4 * p1[1] + p2[1])
     return integral
 
-def _low_pass(data, pool=None):
+def _low_pass(data, cutoff, pool=None):
     '''Convolves a signal with the sinc filter function to achieve a low pass
     filtering.
 
     Args:
         data: The list of points representing the signal to filter.
+        cutoff: The frequency cutoff to filter under.
         pool: If not None, used to parallelize the operation.
 
     Returns:
         The input points transformed by the low pass filter.
     '''
-    return _parallelize(data, _low_pass_kernel, pool)
+    return _parallelize(len(data), (data, cutoff), _low_pass_kernel, pool)
 
-def _low_pass_kernel(i, data):
+def _low_pass_kernel(i, data, cutoff):
     '''Evaluates and returns the low pass filtered version of a function at a point.
 
     Args:
@@ -181,18 +198,19 @@ def _low_pass_kernel(i, data):
         data: The list of points.
     '''
     t = data[i][0]
-    return (t, _integrate([(x, y * _sinc_filter(t - x)) for x, y in data]))
+    return (t, _integrate([(x, y * _sinc_filter(t - x, cutoff)) for x, y in data]))
 
-def _sinc_filter(x):
+def _sinc_filter(x, cutoff):
     '''Evaluates and returns the sinc filter function.
 
     Args:
         x: The input to the sinc filter function.
+        cutoff: The frequency cutoff.
     '''
     if abs(x) < _SINC_EPSILON:
-        return 2 * _LOW_PASS_CUTOFF
+        return 2 * cutoff
     else:
-        return math.sin(2 * _LOW_PASS_CUTOFF * math.pi * x) / (math.pi * x)
+        return math.sin(2 * cutoff * math.pi * x) / (math.pi * x)
 
 def _pos_atan2(y, x):
     '''Returns math.atan2(y, x) in the range [0, 2pi] instead of [-pi, pi].'''
@@ -241,6 +259,10 @@ def _analytical_magnitude(real, imag):
         corresponding inputs in the given lists.
     '''
     return [(x, math.hypot(r, i)) for (x, r), (_, i) in zip(real, imag)]
+
+def _write_points(fn, points):
+    with open(fn + '.csv', 'w') as f:
+        print_points(points, file=f)
 
 def _test_data_gen_func(x):
     '''Evaluates and returns the nonstationary square wave at the given input.'''
