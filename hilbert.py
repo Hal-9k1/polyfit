@@ -9,7 +9,8 @@ _SINC_EPSILON = pow(10, -12)
 # points less than this distance from 0 are skipped when integrating for
 # hilbert transformation:
 _HILBERT_EPSILON = pow(10, -12)
-_ORIG_IF_LOW_PASS_CUTOFF = 0.02
+_ORIG_IF_LOW_PASS_CUTOFF = 0.001
+_ORIG_IF_AVG_WINDOW = 320
 _PROJ_LOW_PASS_CUTOFF = 0.02
 _TRAPEZOID_THRESHOLD = 0.0001
 
@@ -75,7 +76,9 @@ def hilbert_decomp(data, parallel=True):
             (p0[0], (p1[1] - p0[1]) % (2 * math.pi) / (p1[0] - p0[0]))
             for p0, p1 in zip(phase, phase[1:])
         ]
-        extracted_freq = _low_pass(freq, _ORIG_IF_LOW_PASS_CUTOFF, pool=pool)
+        #extracted_freq = _low_pass(freq, _ORIG_IF_LOW_PASS_CUTOFF, pool=pool)
+        #extracted_freq = _filtered_moving_median(freq, _ORIG_IF_AVG_WINDOW, 5, pool=pool)
+        extracted_freq = [(x, 0.02 + 0.00003 * x) for x, _ in freq]
         in_phase_proj = []
         hb_phase_proj = []
         integral = 0
@@ -200,6 +203,77 @@ def _low_pass_kernel(i, data, cutoff):
     t = data[i][0]
     return (t, _integrate([(x, y * _sinc_filter(t - x, cutoff)) for x, y in data]))
 
+def _filtered_moving_avg(data, window, max_stdev_diff, pool=None):
+    avgs = _moving_avg(data, window, pool)
+    stdevs = _moving_stdev(data, window, pool)
+    filtered = [
+        (x, y if abs(y - avg) / stdev < max_stdev_diff else avg)
+        for (x, y), (_, avg), (_, stdev) in zip(data, avgs, stdevs)
+    ]
+    return _moving_avg(filtered, window, pool)
+
+def _moving_avg(data, window, pool=None):
+    return _parallelize(len(data), (data, window), _moving_avg_kernel, pool)
+
+def _moving_avg_kernel(i, data, window):
+    return _moving_kernel(_mean, i, data, window)
+
+def _moving_stdev(data, window, pool=None):
+    return _parallelize(len(data), (data, window), _moving_stdev_kernel, pool)
+
+def _moving_stdev_kernel(i, data, window):
+    return _moving_kernel(_stdev, i, data, window)
+
+def _moving_harmonic_avg(data, window, pool=None):
+    return _parallelize(len(data), (data, window), _moving_harmonic_avg_kernel, pool)
+
+def _moving_harmonic_avg_kernel(i, data, window):
+    return _moving_kernel(_harmonic_mean, i, data, window)
+
+def _filtered_moving_median(data, window, max_mad_diff, pool=None):
+    meds = _moving_median(data, window, pool)
+    mads = _moving_mad(data, window, pool)
+    filtered = [
+        (x, y if abs(y - med) / mad < max_mad_diff else med)
+        for (x, y), (_, med), (_, mad) in zip(data, meds, mads)
+    ]
+    return _moving_avg(filtered, window, pool)
+
+def _moving_median(data, window, pool=None):
+    return _parallelize(len(data), (data, window), _moving_median_kernel, pool)
+
+def _moving_median_kernel(i, data, window):
+    return _moving_kernel(_median, i, data, window)
+
+def _moving_mad(data, window, pool=None):
+    return _parallelize(len(data), (data, window), _moving_mad_kernel, pool)
+
+def _moving_mad_kernel(i, data, window):
+    return _moving_kernel(_mad, i, data, window)
+
+def _moving_kernel(func, i, data, window):
+    l = data[max(0, i - window // 2):min(i + window // 2, len(data) - 1)]
+    l = [x[1] for x in l]
+    return (data[i][0], func(l))
+
+def _mean(data):
+    return sum(data) / len(data)
+
+def _median(data):
+    return sorted(data)[len(data) // 2]
+
+def _harmonic_mean(data):
+    return len(data) / sum([1 / x for x in data])
+
+def _mad(data):
+    m = _median(data)
+    return _median([abs(x - m) for x in data])
+
+def _stdev(data):
+    l = len(data)
+    m = sum(data) / l
+    return math.sqrt(sum([(x - m)**2 for x in data]) / l)
+
 def _sinc_filter(x, cutoff):
     '''Evaluates and returns the sinc filter function.
 
@@ -261,6 +335,7 @@ def _analytical_magnitude(real, imag):
     return [(x, math.hypot(r, i)) for (x, r), (_, i) in zip(real, imag)]
 
 def _write_points(fn, points):
+    '''Dumps points to a file for testing purposes.'''
     with open(fn + '.csv', 'w') as f:
         print_points(points, file=f)
 
