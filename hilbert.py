@@ -176,7 +176,7 @@ def _integrate(data):
             integral += (p1[0] - p0[0]) * (p1[1] + p0[1]) * 0.5
         else:
             # simpsons
-            integral += (p2[0] - p1[0]) / 6 * (p0[1] + 4 * p1[1] + p2[1])
+            integral += (p2[0] - p0[0]) / 6 * (p0[1] + 4 * p1[1] + p2[1])
     return integral
 
 def _low_pass(data, cutoff, pool=None):
