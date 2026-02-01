@@ -79,7 +79,7 @@ def hilbert_decomp(data, parallel=True):
         #extracted_freq = _low_pass(freq, _ORIG_IF_LOW_PASS_CUTOFF, pool=pool)
         #extracted_freq = _filtered_moving_median(freq, _ORIG_IF_AVG_WINDOW, 5, pool=pool)
         extracted_freq = [(x, 0.02 + 0.00003 * x) for x, _ in freq]
-        in_phase_proj, hb_phase_proj = _lock_in_amp(hilbert_data, extracted_freq, 230)
+        in_phase_proj, hb_phase_proj = _lock_in_amp(hilbert_data, extracted_freq, 2 * 230)
         _write_points('realproj', in_phase_proj)
         _write_points('imagproj', hb_phase_proj)
         in_phase_proj = _low_pass(in_phase_proj, _PROJ_LOW_PASS_CUTOFF, pool=pool)
@@ -163,10 +163,10 @@ def _def_integrate(data):
 def _imp_integrate(data):
     integral = 0
     integrated = []
-    for i in range(l - 1):
+    for i in range(len(data) - 1):
         p0 = data[i]
         p1 = data[i + 1]
-        integrated.append(p0[0], integral)
+        integrated.append((p0[0], integral))
         integral += (p1[0] - p0[0]) * (p1[1] + p0[1]) * 0.5
     return integrated
 
@@ -198,28 +198,35 @@ def _lock_in_amp(signal, freq, window, pool=None):
     integrated_freq = _imp_integrate(freq)
     count = len(signal) - window
     in_phase = _parallelize(
-        len(signal)
+        len(signal),
         (signal, window, integrated_freq, 0),
         _lock_in_amp_kernel,
         pool
     )
     quad_phase = _parallelize(
-        len(signal)
-        (signal, window, integrated_freq, -math.pi / 2),
+        len(signal),
+        (signal, window, integrated_freq, math.pi / 2),
         _lock_in_amp_kernel,
         pool
     )
     return [x for x in in_phase if x != None], [x for x in quad_phase if x != None]
 
 def _lock_in_amp_kernel(i, signal, window, integrated_freq, phase):
-    if rate[i] - rate[0]
+    if signal[i][0] - signal[0][0] < window:
+        return None
+    width = 0
+    for j in range(i - 1, -1, -1):
+        width += signal[j + 1][0] - signal[j][0]
+        if width >= window:
+            break
+    window_slice = slice(j, i + 1)
     signal_slice = signal[window_slice]
     integrated_freq_slice = integrated_freq[window_slice]
     integrand = [
         (x, math.sin(2 * math.pi * freq_int + phase) * sig)
-        for i, ((x, sig), (_, freq_int)) in enumerate(zip(signal_slice, integrated_freq_slice))
+        for (x, sig), (_, freq_int) in zip(signal_slice, integrated_freq_slice)
     ]
-    return (window_slice[-1][0], 1 / signal * _def_integrate(integrand))
+    return (signal_slice[-1][0], 1 / width * _def_integrate(integrand))
 
 def _filtered_moving_avg(data, window, max_stdev_diff, pool=None):
     avgs = _moving_avg(data, window, pool)
