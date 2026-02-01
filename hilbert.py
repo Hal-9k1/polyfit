@@ -41,7 +41,7 @@ def _hilbert_kernel(i, data):
         data: The list of points.
     '''
     t = data[i][0]
-    return (t, _def_integrate([
+    return (t, _integrate([
         (x, y / (t - x))
         for x, y in data
         if abs(t - x) > _HILBERT_EPSILON # principal value rule
@@ -79,7 +79,26 @@ def hilbert_decomp(data, parallel=True):
         #extracted_freq = _low_pass(freq, _ORIG_IF_LOW_PASS_CUTOFF, pool=pool)
         #extracted_freq = _filtered_moving_median(freq, _ORIG_IF_AVG_WINDOW, 5, pool=pool)
         extracted_freq = [(x, 0.02 + 0.00003 * x) for x, _ in freq]
-        in_phase_proj, hb_phase_proj = _lock_in_amp(hilbert_data, extracted_freq, 2 * 230)
+        in_phase_proj = []
+        hb_phase_proj = []
+        integral = 0
+        for i in range(len(freq) - 1):
+            x = freq[i][0]
+            x_next = freq[i + 1][0]
+            freq_all = freq[i][1]
+            freq_all_next = freq[i + 1][1]
+            amp_all = amp[i][1]
+            phase_all = phase[i][1]
+            freq_ref = extracted_freq[i][1]
+            freq_ref_next = extracted_freq[i + 1][1]
+            in_phase_proj.append(
+                (x, 0.5 * amp_all * (math.cos(phase_all) + math.cos(integral + phase_all)))
+            )
+            hb_phase_proj.append(
+                (x, 0.5 * amp_all * (math.sin(phase_all) - math.sin(integral + phase_all)))
+            )
+            # trapezoid rule:
+            integral += (x_next - x) * (freq_all_next + freq_ref_next + freq_all + freq_ref) * 0.5
         _write_points('realproj', in_phase_proj)
         _write_points('imagproj', hb_phase_proj)
         in_phase_proj = _low_pass(in_phase_proj, _PROJ_LOW_PASS_CUTOFF, pool=pool)
@@ -98,7 +117,7 @@ def hilbert_decomp(data, parallel=True):
         _write_points('extria', extracted_amp)
         _write_points('extrip', extracted_phase)
         _write_points('final', signal)
-        return signal, []#[(x, orig - extracted) for (x, orig), (_, extracted) in zip(data, signal)]
+        return signal, [(x, orig - extracted) for (x, orig), (_, extracted) in zip(data, signal)]
 
 def _parallelize(count, uniforms, func, pool):
     '''Runs a kernel function a given number of times, optionally in perallel.
@@ -125,7 +144,7 @@ def _parallelize(count, uniforms, func, pool):
     else:
         return [func(*arg) for arg in args]
 
-def _def_integrate(data):
+def _integrate(data):
     '''Integrates a signal.
 
     Integrates a function specified by a list of points from negative to
@@ -134,7 +153,7 @@ def _def_integrate(data):
     from the mean input, in which case the trapezoid rule is used.
 
     Args:
-        data: The list of points representing the function to be def_integrated.
+        data: The list of points representing the function to be integrated.
     
     Returns:
         The value of the improper definite integral.
@@ -160,16 +179,6 @@ def _def_integrate(data):
             integral += (p2[0] - p0[0]) / 6 * (p0[1] + 4 * p1[1] + p2[1])
     return integral
 
-def _imp_integrate(data):
-    integral = 0
-    integrated = []
-    for i in range(len(data) - 1):
-        p0 = data[i]
-        p1 = data[i + 1]
-        integrated.append((p0[0], integral))
-        integral += (p1[0] - p0[0]) * (p1[1] + p0[1]) * 0.5
-    return integrated
-
 def _low_pass(data, cutoff, pool=None):
     '''Convolves a signal with the sinc filter function to achieve a low pass
     filtering.
@@ -192,41 +201,7 @@ def _low_pass_kernel(i, data, cutoff):
         data: The list of points.
     '''
     t = data[i][0]
-    return (t, _def_integrate([(x, y * _sinc_filter(t - x, cutoff)) for x, y in data]))
-
-def _lock_in_amp(signal, freq, window, pool=None):
-    integrated_freq = _imp_integrate(freq)
-    count = len(signal) - window
-    in_phase = _parallelize(
-        len(signal),
-        (signal, window, integrated_freq, 0),
-        _lock_in_amp_kernel,
-        pool
-    )
-    quad_phase = _parallelize(
-        len(signal),
-        (signal, window, integrated_freq, math.pi / 2),
-        _lock_in_amp_kernel,
-        pool
-    )
-    return [x for x in in_phase if x != None], [x for x in quad_phase if x != None]
-
-def _lock_in_amp_kernel(i, signal, window, integrated_freq, phase):
-    if signal[i][0] - signal[0][0] < window:
-        return None
-    width = 0
-    for j in range(i - 1, -1, -1):
-        width += signal[j + 1][0] - signal[j][0]
-        if width >= window:
-            break
-    window_slice = slice(j, i + 1)
-    signal_slice = signal[window_slice]
-    integrated_freq_slice = integrated_freq[window_slice]
-    integrand = [
-        (x, math.sin(2 * math.pi * freq_int + phase) * sig)
-        for (x, sig), (_, freq_int) in zip(signal_slice, integrated_freq_slice)
-    ]
-    return (signal_slice[-1][0], 1 / width * _def_integrate(integrand))
+    return (t, _integrate([(x, y * _sinc_filter(t - x, cutoff)) for x, y in data]))
 
 def _filtered_moving_avg(data, window, max_stdev_diff, pool=None):
     avgs = _moving_avg(data, window, pool)
